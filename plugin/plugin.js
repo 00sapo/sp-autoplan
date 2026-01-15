@@ -280,7 +280,7 @@ const TaskSplitter = {
         splitName = config.splitPrefix + splitName;
       }
       if (config.splitSuffix !== false) {
-        splitName = `${splitName} ${toRoman(i + 1)}`;
+        splitName = `${splitName} <${toRoman(i + 1)}>`;
       }
 
       splits.push({
@@ -708,9 +708,9 @@ const TaskMerger = {
       totalTimeSpent += split.timeSpent || 0;
     }
 
-    // Clean title by removing Roman numeral suffix
-    // Be careful not to remove valid text - only remove if preceded by space
-    const cleanTitle = originalTitle || incompleteSplits[0]?.title?.replace(/ [IVXLCDM]+$/, '') || 'Merged Task';
+    // Clean title by removing Roman numeral suffix in <> brackets
+    // Pattern: " <I>", " <II>", " <XIV>", etc.
+    const cleanTitle = originalTitle || incompleteSplits[0]?.title?.replace(/ <[IVXLCDM]+>$/, '') || 'Merged Task';
 
     return {
       title: cleanTitle,

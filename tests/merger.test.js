@@ -166,14 +166,14 @@ describe('TaskMerger.calculateMergeData', () => {
   });
 
   it('uses provided original title', () => {
-    const splits = [createTask({ title: 'Task I' })];
+    const splits = [createTask({ title: 'Task <I>' })];
     const data = TaskMerger.calculateMergeData(splits, 'My Original Task');
 
     expect(data.title).toBe('My Original Task');
   });
 
   it('removes Roman numeral suffix when no original title', () => {
-    const splits = [createTask({ title: 'Task Name III' })];
+    const splits = [createTask({ title: 'Task Name <III>' })];
     const data = TaskMerger.calculateMergeData(splits, null);
 
     expect(data.title).toBe('Task Name');

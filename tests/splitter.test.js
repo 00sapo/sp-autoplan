@@ -56,9 +56,9 @@ describe('TaskSplitter.splitTask', () => {
     const task = createTask({ timeEstimate: 6 * 60 * 60 * 1000 }); // 6 hours
     const splits = TaskSplitter.splitTask(task, 120, config);
 
-    expect(splits[0].title).toBe('Test Task I');
-    expect(splits[1].title).toBe('Test Task II');
-    expect(splits[2].title).toBe('Test Task III');
+    expect(splits[0].title).toBe('Test Task <I>');
+    expect(splits[1].title).toBe('Test Task <II>');
+    expect(splits[2].title).toBe('Test Task <III>');
   });
 
   it('respects splitSuffix = false', () => {
@@ -75,7 +75,7 @@ describe('TaskSplitter.splitTask', () => {
     const task = createTask({ timeEstimate: 2 * 60 * 60 * 1000 });
     const splits = TaskSplitter.splitTask(task, 120, prefixConfig);
 
-    expect(splits[0].title).toBe('[SPLIT] Test Task I');
+    expect(splits[0].title).toBe('[SPLIT] Test Task <I>');
   });
 
   it('preserves task metadata', () => {
