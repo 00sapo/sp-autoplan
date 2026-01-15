@@ -60,6 +60,10 @@ Use the **Schedule** tab to preview what will be scheduled before applying chang
 
 **Super Conductivity still has primitive calendar integration.** Import calendar events as tasks with a "fixed" tag to protect them from AutoPlan.
 
+**Super Productivity Plugin API are limited.** Especially, they don't expose settings that would be
+useful for improving AutoPlan (working hours, weekdays, boards). This leads to replicate the working
+hours settings and to the impossibility of having priority given by our custom list order.
+
 ## Development
 
 ```bash
