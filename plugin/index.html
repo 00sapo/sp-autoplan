@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoPlan Settings</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Open Sans', sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: var(--text-color);
+    }
+
+    h1 {
+      font-size: 14px;
+      margin: 0 0 4px 0;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      opacity: 0.7;
+      margin-bottom: 20px;
+    }
+
+    .section {
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--separator-color);
+    }
+
+    .section:last-of-type {
+      border-bottom: none;
+    }
+
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9em;
+      opacity: 0.7;
+      margin-bottom: 4px;
+    }
+
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 8px;
+      font-size: inherit;
+      font-family: inherit;
+      border: 1px solid var(--separator-color);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-color);
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .checkbox-group label {
+      margin-bottom: 0;
+      opacity: 1;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .help-text {
+      font-size: 0.8em;
+      opacity: 0.6;
+      margin-top: 4px;
+    }
+
+    /* Tag Priorities Table */
+    .tag-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .tag-table th,
+    .tag-table td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid var(--separator-color);
+    }
+
+    .tag-table th {
+      font-weight: 600;
+      font-size: 0.8em;
+      text-transform: uppercase;
+      opacity: 0.7;
+    }
+
+    .tag-table input {
+      width: 80px;
+    }
+
+    .tag-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid var(--separator-color);
+      border-radius: 12px;
+      font-size: 0.85em;
+    }
+
+    .add-tag-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .add-tag-row input {
+      flex: 1;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 8px 16px;
+      border: 1px solid var(--separator-color);
+      border-radius: 4px;
+      font-size: inherit;
+      font-family: inherit;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-color);
+    }
+
+    .btn:hover {
+      opacity: 0.8;
+    }
+
+    .btn-primary {
+      background: var(--c-primary, #7c4dff);
+      border: 2px solid var(--c-primary, #7c4dff);
+      color: var(--c-primary-contrast, #ffffff);
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-small {
+      padding: 4px 10px;
+      font-size: 0.85em;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    /* Schedule Preview */
+    .schedule-preview {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .schedule-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--separator-color);
+    }
+
+    .schedule-item:last-child {
+      border-bottom: none;
+    }
+
+    .schedule-title {
+      flex: 1;
+      margin-right: 16px;
+    }
+
+    .schedule-urgency {
+      font-size: 0.85em;
+      padding: 2px 8px;
+      border: 1px solid var(--separator-color);
+      border-radius: 10px;
+      white-space: nowrap;
+    }
+
+    /* Status Messages */
+    .status {
+      padding: 10px;
+      border: 1px solid var(--separator-color);
+      border-radius: 4px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      opacity: 0.7;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--separator-color);
+      border-top-color: var(--c-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--separator-color);
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      padding: 10px 16px;
+      cursor: pointer;
+      opacity: 0.6;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab:hover {
+      opacity: 0.9;
+    }
+
+    .tab.active {
+      opacity: 1;
+      border-bottom-color: var(--c-primary);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Formula editor */
+    .formula-preview {
+      padding: 10px;
+      border: 1px solid var(--separator-color);
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+      margin-top: 8px;
+      opacity: 0.8;
+    }
+
+    /* Run AutoPlan Section */
+    .run-section {
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--separator-color, #e0e0e0);
+    }
+
+    .btn-run {
+      width: 100%;
+      padding: 16px 24px;
+      font-size: 1.1em;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+      transition: all 0.2s ease;
+    }
+
+    .btn-run:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-run:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-run:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-run .btn-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--c-primary-contrast);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="run-section">
+    <button class="btn btn-primary btn-run" id="runButton" onclick="handleRunAutoplan()">
+      <span id="runButtonContent">⚡ Run AutoPlan Now</span>
+    </button>
+  </div>
+
+  <h1>AutoPlan Settings</h1>
+  <p class="subtitle">Configure automatic task scheduling and priority calculation</p>
+
+  <div id="status" class="status"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="settings">Settings</div>
+    <div class="tab" data-tab="tags">Tag Priorities</div>
+    <div class="tab" data-tab="formulas">Priority Formulas</div>
+    <div class="tab" data-tab="schedule">Schedule</div>
+    <div class="tab" data-tab="merge">Merge Tasks</div>
+  </div>
+
+  <!-- Settings Tab -->
+  <div id="tab-settings" class="tab-content active">
+    <div class="section">
+      <div class="section-title">Block Settings</div>
+      
+      <div class="form-group">
+        <label for="blockSize">Block Size (minutes)</label>
+        <input type="number" id="blockSize" min="15" max="480" step="15" value="120">
+        <p class="help-text">Tasks will be split into blocks of this duration (default: 120 = 2 hours)</p>
+      </div>
+
+      <div class="row">
+        <div class="form-group">
+          <label for="maxDays">Max Days Ahead</label>
+          <input type="number" id="maxDays" min="1" max="365" value="30">
+        </div>
+        <div class="form-group">
+          <div class="checkbox-group" style="margin-top: 28px;">
+            <input type="checkbox" id="autoRun">
+            <label for="autoRun">Auto-run on startup</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Task Splitting</div>
+      
+      <div class="form-group">
+        <div class="checkbox-group">
+          <input type="checkbox" id="splitSuffix" checked>
+          <label for="splitSuffix">Add Roman numeral suffix (I, II, III...)</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Work Schedule</div>
+      
+      <div class="row">
+        <div class="form-group">
+          <label for="workdayStartHour">Workday Start Hour</label>
+          <input type="number" id="workdayStartHour" min="0" max="23" value="9">
+        </div>
+        <div class="form-group">
+          <label for="workdayHours">Workday Length (hours)</label>
+          <input type="number" id="workdayHours" min="1" max="24" value="8">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Skip Days</label>
+        <p class="help-text" style="margin-bottom: 8px;">Select days to exclude from scheduling</p>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay0" checked>
+            <span>Sunday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay1">
+            <span>Monday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay2">
+            <span>Tuesday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay3">
+            <span>Wednesday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay4">
+            <span>Thursday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay5">
+            <span>Friday</span>
+          </label>
+          <label class="checkbox-group" style="min-width: 100px;">
+            <input type="checkbox" id="skipDay6" checked>
+            <span>Saturday</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tag Priorities Tab -->
+  <div id="tab-tags" class="tab-content">
+    <div class="section">
+      <div class="section-title">Tag Priority Boosts</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        Assign priority boosts to tags. Positive values increase priority, negative values decrease it.
+      </p>
+      
+      <table class="tag-table" id="tagTable">
+        <thead>
+          <tr>
+            <th>Tag Name</th>
+            <th>Priority Boost</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tagTableBody">
+          <!-- Tags will be populated here -->
+        </tbody>
+      </table>
+
+      <div class="add-tag-row">
+        <input type="text" id="newTagName" placeholder="Tag name">
+        <input type="number" id="newTagPriority" placeholder="Boost" value="10" style="width: 80px;">
+        <button class="btn btn-small" onclick="addTagPriority()">Add Tag</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Priority Formulas Tab -->
+  <div id="tab-formulas" class="tab-content">
+    <div class="section">
+      <div class="section-title">Duration Priority Formula</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        How task duration affects priority. Inverse = shorter tasks get higher priority.
+      </p>
+      
+      <div class="row">
+        <div class="form-group">
+          <label for="durationFormula">Formula Type</label>
+          <select id="durationFormula">
+            <option value="none">None (disabled)</option>
+            <option value="linear">Linear (hours)</option>
+            <option value="inverse">Inverse (1/(hours+1))</option>
+            <option value="log">Logarithmic (log(hours+1))</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="durationWeight">Weight</label>
+          <input type="number" id="durationWeight" min="0" max="10" step="0.1" value="1.0">
+        </div>
+      </div>
+
+      <div class="formula-preview" id="durationPreview">
+        Duration Priority = linear(hours) * 1.0
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Oldness Priority Formula</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        How task age affects priority. Older tasks can get higher priority to prevent them from being forgotten.
+      </p>
+      
+      <div class="row">
+        <div class="form-group">
+          <label for="oldnessFormula">Formula Type</label>
+          <select id="oldnessFormula">
+            <option value="none">None (disabled)</option>
+            <option value="linear">Linear (days)</option>
+            <option value="log">Logarithmic (log(days+1))</option>
+            <option value="exponential">Exponential (1.1^days)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="oldnessWeight">Weight</label>
+          <input type="number" id="oldnessWeight" min="0" max="10" step="0.1" value="1.0">
+        </div>
+      </div>
+
+      <div class="formula-preview" id="oldnessPreview">
+        Oldness Priority = linear(days) * 1.0
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Total Priority Formula</div>
+      <div class="formula-preview">
+        Total Priority = Base(N+1-rank) + TagBoosts + DurationPriority + OldnessPriority
+      </div>
+    </div>
+  </div>
+
+  <!-- Schedule Tab -->
+  <div id="tab-schedule" class="tab-content">
+    <div class="section">
+      <div class="section-title">Schedule Preview</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        Preview how your tasks will be scheduled without making changes.
+      </p>
+      
+      <button class="btn" onclick="previewSchedule()">
+        Generate Preview
+      </button>
+
+      <div id="schedulePreview" class="schedule-preview" style="margin-top: 16px;">
+        <!-- Schedule preview will be shown here -->
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Run AutoPlan</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        Apply the scheduling algorithm to your tasks. This will create new split tasks and update schedules.
+      </p>
+      
+      <button class="btn" onclick="runAutoplan()">
+        Run AutoPlan Now
+      </button>
+    </div>
+  </div>
+
+  <!-- Merge Tasks Tab -->
+  <div id="tab-merge" class="tab-content">
+    <div class="section">
+      <div class="section-title">Split Task Groups</div>
+      <p class="help-text" style="margin-bottom: 16px;">
+        View and merge split tasks back into a single task. This is useful if you want to undo a split or consolidate remaining work.
+      </p>
+      
+      <button class="btn" onclick="loadSplitGroups()">
+        Refresh Split Groups
+      </button>
+
+      <div id="splitGroups" style="margin-top: 16px;">
+        <!-- Split groups will be shown here -->
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">How Merging Works</div>
+      <ul style="opacity: 0.7; padding-left: 20px;">
+        <li>Merging combines all incomplete splits of a task</li>
+        <li>Time estimates are summed together</li>
+        <li>The first incomplete split becomes the merged task</li>
+        <li>Other splits are marked as completed</li>
+        <li>The original task title is restored (without Roman numerals)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="saveSettings()">Save Settings</button>
+    <button class="btn" onclick="resetToDefaults()">Reset to Defaults</button>
+  </div>
+
+  <script>
+    // State
+    let currentConfig = {};
+
+    // Handle Run AutoPlan button click
+    async function handleRunAutoplan() {
+      const button = document.getElementById('runButton');
+      const buttonContent = document.getElementById('runButtonContent');
+      const originalContent = buttonContent.innerHTML;
+
+      // Show loading state
+      button.disabled = true;
+      buttonContent.innerHTML = '<span class="btn-spinner"></span> Running...';
+
+      try {
+        // Save current settings first
+        await saveSettings();
+
+        // Try to communicate with plugin.js
+        if (window.parent && window.parent.AutoPlanAPI) {
+          const result = await window.parent.AutoPlanAPI.runAutoplan(false);
+          showStatus(`AutoPlan complete: ${result.schedule?.length || 0} blocks scheduled`, 'success');
+        } else {
+          // AutoPlanAPI not available
+          showStatus('AutoPlanAPI not available. Use the header button or Ctrl+Shift+A to run.', 'info');
+        }
+      } catch (e) {
+        console.error('AutoPlan failed:', e);
+        showStatus('AutoPlan failed: ' + e.message, 'error');
+      } finally {
+        // Restore button state
+        button.disabled = false;
+        buttonContent.innerHTML = originalContent;
+      }
+    }
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    // Show status message
+    function showStatus(message, type = 'info') {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = `status show ${type}`;
+      setTimeout(() => {
+        status.classList.remove('show');
+      }, 3000);
+    }
+
+    // Load settings from plugin
+    async function loadSettings() {
+      try {
+        const data = await PluginAPI.loadSyncedData();
+        if (data) {
+          currentConfig = JSON.parse(data);
+        } else {
+          currentConfig = getDefaultConfig();
+        }
+        applySettingsToUI();
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+        currentConfig = getDefaultConfig();
+        applySettingsToUI();
+      }
+    }
+
+    // Get default config
+    function getDefaultConfig() {
+      return {
+        blockSizeMinutes: 120,
+        tagPriorities: {},
+        durationFormula: 'linear',
+        durationWeight: 1.0,
+        oldnessFormula: 'linear',
+        oldnessWeight: 1.0,
+        maxDaysAhead: 30,
+        autoRunOnStart: false,
+        splitSuffix: true,
+        workdayStartHour: 9,
+        workdayHours: 8,
+        skipDays: [0, 6], // Sunday and Saturday
+      };
+    }
+
+    // Apply settings to UI
+    function applySettingsToUI() {
+      document.getElementById('blockSize').value = currentConfig.blockSizeMinutes || 120;
+      document.getElementById('maxDays').value = currentConfig.maxDaysAhead || 30;
+      document.getElementById('autoRun').checked = currentConfig.autoRunOnStart || false;
+      document.getElementById('splitSuffix').checked = currentConfig.splitSuffix !== false;
+      
+      document.getElementById('durationFormula').value = currentConfig.durationFormula || 'linear';
+      document.getElementById('durationWeight').value = currentConfig.durationWeight || 1.0;
+      document.getElementById('oldnessFormula').value = currentConfig.oldnessFormula || 'linear';
+      document.getElementById('oldnessWeight').value = currentConfig.oldnessWeight || 1.0;
+
+      document.getElementById('workdayStartHour').value = currentConfig.workdayStartHour ?? 9;
+      document.getElementById('workdayHours').value = currentConfig.workdayHours ?? 8;
+
+      // Apply skip days
+      const skipDays = currentConfig.skipDays || [0, 6];
+      for (let i = 0; i <= 6; i++) {
+        document.getElementById(`skipDay${i}`).checked = skipDays.includes(i);
+      }
+
+      updateTagTable();
+      updateFormulaPreview();
+    }
+
+    // Collect settings from UI
+    function collectSettingsFromUI() {
+      // Collect skip days
+      const skipDays = [];
+      for (let i = 0; i <= 6; i++) {
+        if (document.getElementById(`skipDay${i}`).checked) {
+          skipDays.push(i);
+        }
+      }
+
+      return {
+        blockSizeMinutes: parseInt(document.getElementById('blockSize').value) || 120,
+        maxDaysAhead: parseInt(document.getElementById('maxDays').value) || 30,
+        autoRunOnStart: document.getElementById('autoRun').checked,
+        splitSuffix: document.getElementById('splitSuffix').checked,
+        durationFormula: document.getElementById('durationFormula').value,
+        durationWeight: parseFloat(document.getElementById('durationWeight').value) || 1.0,
+        oldnessFormula: document.getElementById('oldnessFormula').value,
+        oldnessWeight: parseFloat(document.getElementById('oldnessWeight').value) || 1.0,
+        workdayStartHour: parseInt(document.getElementById('workdayStartHour').value) || 9,
+        workdayHours: parseInt(document.getElementById('workdayHours').value) || 8,
+        skipDays: skipDays,
+        tagPriorities: currentConfig.tagPriorities || {},
+      };
+    }
+
+    // Save settings
+    async function saveSettings() {
+      try {
+        currentConfig = collectSettingsFromUI();
+        await PluginAPI.persistDataSynced(JSON.stringify(currentConfig));
+        showStatus('Settings saved successfully!', 'success');
+      } catch (e) {
+        console.error('Failed to save settings:', e);
+        showStatus('Failed to save settings: ' + e.message, 'error');
+      }
+    }
+
+    // Reset to defaults
+    function resetToDefaults() {
+      if (confirm('Reset all settings to defaults?')) {
+        currentConfig = getDefaultConfig();
+        applySettingsToUI();
+        showStatus('Settings reset to defaults', 'info');
+      }
+    }
+
+    // Tag priority management
+    function updateTagTable() {
+      const tbody = document.getElementById('tagTableBody');
+      tbody.innerHTML = '';
+      
+      const tagPriorities = currentConfig.tagPriorities || {};
+      
+      for (const [tagName, priority] of Object.entries(tagPriorities)) {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><span class="tag-badge">${escapeHtml(tagName)}</span></td>
+          <td>
+            <input type="number" value="${priority}" 
+                   onchange="updateTagPriority('${escapeHtml(tagName)}', this.value)">
+          </td>
+          <td>
+            <button class="btn btn-small" onclick="removeTagPriority('${escapeHtml(tagName)}')">
+              Remove
+            </button>
+          </td>
+        `;
+        tbody.appendChild(row);
+      }
+
+      if (Object.keys(tagPriorities).length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="opacity: 0.7; text-align: center;">No tag priorities configured</td></tr>';
+      }
+    }
+
+    function addTagPriority() {
+      const nameInput = document.getElementById('newTagName');
+      const priorityInput = document.getElementById('newTagPriority');
+      
+      const name = nameInput.value.trim();
+      const priority = parseFloat(priorityInput.value) || 0;
+      
+      if (!name) {
+        showStatus('Please enter a tag name', 'error');
+        return;
+      }
+
+      if (!currentConfig.tagPriorities) {
+        currentConfig.tagPriorities = {};
+      }
+      
+      currentConfig.tagPriorities[name] = priority;
+      updateTagTable();
+      
+      nameInput.value = '';
+      priorityInput.value = '10';
+    }
+
+    function updateTagPriority(name, value) {
+      currentConfig.tagPriorities[name] = parseFloat(value) || 0;
+    }
+
+    function removeTagPriority(name) {
+      delete currentConfig.tagPriorities[name];
+      updateTagTable();
+    }
+
+
+
+    // Formula preview update
+    function updateFormulaPreview() {
+      const durationFormula = document.getElementById('durationFormula').value;
+      const durationWeight = document.getElementById('durationWeight').value;
+      const oldnessFormula = document.getElementById('oldnessFormula').value;
+      const oldnessWeight = document.getElementById('oldnessWeight').value;
+
+      const durationFns = {
+        none: 'disabled',
+        linear: 'hours',
+        inverse: '1/(hours+1)',
+        log: 'log(hours+1)'
+      };
+
+      const oldnessFns = {
+        none: 'disabled',
+        linear: 'days',
+        log: 'log(days+1)',
+        exponential: '1.1^days'
+      };
+
+      document.getElementById('durationPreview').textContent = 
+        `Duration Priority = ${durationFns[durationFormula]} * ${durationWeight}`;
+      document.getElementById('oldnessPreview').textContent = 
+        `Oldness Priority = ${oldnessFns[oldnessFormula]} * ${oldnessWeight}`;
+    }
+
+    // Add event listeners for formula preview
+    ['durationFormula', 'durationWeight', 'oldnessFormula', 'oldnessWeight'].forEach(id => {
+      document.getElementById(id).addEventListener('change', updateFormulaPreview);
+    });
+
+    // Schedule preview
+    async function previewSchedule() {
+      const container = document.getElementById('schedulePreview');
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Generating schedule preview...</div>';
+
+      try {
+        // Save current settings first
+        await saveSettings();
+
+        // Try to use the full preview from plugin.js
+        if (window.parent && window.parent.AutoPlanAPI) {
+          const result = await window.parent.AutoPlanAPI.runAutoplan(true); // dry run
+          const schedule = result.schedule || [];
+
+          if (schedule.length === 0) {
+            container.innerHTML = '<p style="opacity: 0.7;">No tasks to schedule. Make sure tasks have time estimates.</p>';
+            return;
+          }
+
+          // Group by date for better display
+          const byDate = new Map();
+          for (const item of schedule) {
+            const dateStr = item.startTime.toLocaleDateString();
+            if (!byDate.has(dateStr)) {
+              byDate.set(dateStr, []);
+            }
+            byDate.get(dateStr).push(item);
+          }
+
+          let html = `<p style="margin-bottom: 12px; font-weight: 500;">${schedule.length} blocks scheduled across ${byDate.size} days:</p>`;
+          
+          for (const [date, items] of byDate) {
+            html += `<div style="margin-top: 12px; margin-bottom: 8px; font-weight: 600; opacity: 0.8;">${date}</div>`;
+            for (const item of items) {
+              const startTime = item.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const endTime = item.endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const hours = (item.split.estimatedHours).toFixed(1);
+              html += `
+                <div class="schedule-item">
+                  <div class="schedule-title">
+                    <span style="opacity: 0.6; font-size: 0.9em;">${startTime}-${endTime}</span>
+                    ${escapeHtml(item.split.title)}
+                  </div>
+                  <div class="schedule-urgency">${hours}h</div>
+                </div>
+              `;
+            }
+          }
+
+          container.innerHTML = html;
+        } else {
+          // Fallback: just show eligible tasks
+          const tasks = await PluginAPI.getTasks();
+          const eligibleTasks = tasks.filter(t => !t.isDone && t.timeEstimate && t.timeEstimate > 0);
+
+          if (eligibleTasks.length === 0) {
+            container.innerHTML = '<p style="opacity: 0.7;">No tasks with time estimates found</p>';
+            return;
+          }
+
+          container.innerHTML = `
+            <p style="margin-bottom: 12px;">Found ${eligibleTasks.length} tasks with time estimates:</p>
+            ${eligibleTasks.slice(0, 10).map(task => `
+              <div class="schedule-item">
+                <div class="schedule-title">${escapeHtml(task.title)}</div>
+                <div class="schedule-urgency">${Math.round((task.timeEstimate || 0) / 3600000)}h</div>
+              </div>
+            `).join('')}
+            ${eligibleTasks.length > 10 ? `<p style="opacity: 0.7;">...and ${eligibleTasks.length - 10} more tasks</p>` : ''}
+            <p style="margin-top: 12px; opacity: 0.7; font-size: 0.9em;">Note: Full preview requires plugin.js to be loaded.</p>
+          `;
+        }
+      } catch (e) {
+        console.error('Preview failed:', e);
+        container.innerHTML = `<p style="font-weight: bold;">Error: ${e.message}</p>`;
+      }
+    }
+
+    // Run autoplan
+    async function runAutoplan() {
+      try {
+        await saveSettings();
+        
+        // Try to communicate with plugin.js
+        if (window.parent && window.parent.AutoPlanAPI) {
+          const result = await window.parent.AutoPlanAPI.runAutoplan(false);
+          showStatus(`AutoPlan complete: ${result.schedule?.length || 0} blocks scheduled`, 'success');
+        } else {
+          // Fallback: Show instructions
+          showStatus('Please use the AutoPlan header button or Ctrl+Shift+A to run the scheduler', 'info');
+        }
+      } catch (e) {
+        console.error('AutoPlan failed:', e);
+        showStatus('AutoPlan failed: ' + e.message, 'error');
+      }
+    }
+
+    // Load and display split groups
+    async function loadSplitGroups() {
+      const container = document.getElementById('splitGroups');
+      container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading split groups...</div>';
+
+      try {
+        // Get all tasks and find split groups
+        const tasks = await PluginAPI.getTasks();
+        const groups = findSplitGroups(tasks);
+
+        if (groups.length === 0) {
+          container.innerHTML = '<p style="opacity: 0.7;">No split task groups found</p>';
+          return;
+        }
+
+        container.innerHTML = groups.map(group => {
+          const incompleteSplits = group.splits.filter(s => !s.task.isDone);
+          const completedSplits = group.splits.filter(s => s.task.isDone);
+          const totalRemaining = incompleteSplits.reduce((sum, s) => sum + (s.task.timeEstimate || 0), 0);
+          
+          return `
+            <div class="section" style="margin-bottom: 12px;">
+              <div class="section-title">${escapeHtml(group.originalTitle)}</div>
+              <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                <span style="opacity: 0.7;">
+                  ${incompleteSplits.length} incomplete / ${completedSplits.length} completed
+                </span>
+                <span style="font-weight: 500;">
+                  ${Math.round(totalRemaining / 3600000)}h remaining
+                </span>
+              </div>
+              <div style="margin-bottom: 12px;">
+                ${group.splits.map(s => `
+                  <div class="schedule-item" style="opacity: ${s.task.isDone ? '0.5' : '1'};">
+                    <div class="schedule-title">
+                      ${s.task.isDone ? '&#x2713; ' : ''}${escapeHtml(s.task.title)}
+                    </div>
+                    <div class="schedule-urgency">
+                      ${Math.round((s.task.timeEstimate || 0) / 3600000)}h
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              ${incompleteSplits.length > 1 ? `
+                <button class="btn btn-small" onclick="mergeSplitGroup('${group.splits[0].task.id}')">
+                  Merge ${incompleteSplits.length} Incomplete Splits
+                </button>
+              ` : `
+                <span style="opacity: 0.7; font-size: 0.85em;">
+                  ${incompleteSplits.length === 1 ? 'Only 1 incomplete split remaining' : 'All splits completed'}
+                </span>
+              `}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error('Failed to load split groups:', e);
+        container.innerHTML = `<p style="font-weight: bold;">Error: ${e.message}</p>`;
+      }
+    }
+
+    // Find split groups from tasks
+    function findSplitGroups(tasks) {
+      const groups = new Map();
+
+      for (const task of tasks) {
+        const splitInfo = parseSplitInfo(task);
+        if (splitInfo) {
+          if (!groups.has(splitInfo.originalTaskId)) {
+            groups.set(splitInfo.originalTaskId, {
+              originalTaskId: splitInfo.originalTaskId,
+              originalTitle: splitInfo.originalTitle,
+              splits: [],
+            });
+          }
+          groups.get(splitInfo.originalTaskId).splits.push({
+            task,
+            splitInfo,
+          });
+        }
+      }
+
+      // Sort splits within each group
+      for (const group of groups.values()) {
+        group.splits.sort((a, b) => a.splitInfo.splitIndex - b.splitInfo.splitIndex);
+      }
+
+      return Array.from(groups.values());
+    }
+
+    // Parse split info from task notes
+    function parseSplitInfo(task) {
+      if (!task.notes) return null;
+      
+      const match = task.notes.match(/Split (\d+)\/(\d+) of "(.+)"\n\nOriginal Task ID: (.+)/);
+      if (match) {
+        return {
+          splitIndex: parseInt(match[1]) - 1,
+          totalSplits: parseInt(match[2]),
+          originalTitle: match[3],
+          originalTaskId: match[4].trim(),
+        };
+      }
+      return null;
+    }
+
+    // Merge a split group
+    async function mergeSplitGroup(taskId) {
+      if (!confirm('Merge all incomplete splits of this task into one?')) {
+        return;
+      }
+
+      try {
+        if (window.parent && window.parent.AutoPlanAPI) {
+          const result = await window.parent.AutoPlanAPI.mergeSplits(taskId);
+          if (result) {
+            showStatus(`Merged ${result.mergedCount} splits successfully`, 'success');
+            loadSplitGroups(); // Refresh the list
+          }
+        } else {
+          // Manual merge fallback
+          const tasks = await PluginAPI.getTasks();
+          const task = tasks.find(t => t.id === taskId);
+          
+          if (!task) {
+            showStatus('Task not found', 'error');
+            return;
+          }
+
+          const splitInfo = parseSplitInfo(task);
+          if (!splitInfo) {
+            showStatus('Not a split task', 'error');
+            return;
+          }
+
+          // Find related splits
+          const relatedSplits = tasks.filter(t => {
+            const info = parseSplitInfo(t);
+            return info && info.originalTaskId === splitInfo.originalTaskId && !t.isDone;
+          });
+
+          if (relatedSplits.length <= 1) {
+            showStatus('Nothing to merge', 'info');
+            return;
+          }
+
+          // Calculate totals
+          let totalEstimate = 0;
+          let totalSpent = 0;
+          for (const split of relatedSplits) {
+            totalEstimate += split.timeEstimate || 0;
+            totalSpent += split.timeSpent || 0;
+          }
+
+          // Use first split as merged task
+          relatedSplits.sort((a, b) => {
+            const infoA = parseSplitInfo(a);
+            const infoB = parseSplitInfo(b);
+            return (infoA?.splitIndex || 0) - (infoB?.splitIndex || 0);
+          });
+
+          const mergedTask = relatedSplits[0];
+          const toDelete = relatedSplits.slice(1);
+
+          // Update merged task
+          await PluginAPI.updateTask(mergedTask.id, {
+            title: splitInfo.originalTitle,
+            timeEstimate: totalEstimate,
+            timeSpent: totalSpent,
+            notes: `[AutoPlan] Merged from ${relatedSplits.length} split tasks.`,
+          });
+
+          // Delete the other splits
+          for (const t of toDelete) {
+            try {
+              await PluginAPI.deleteTask(t.id);
+            } catch (e) {
+              console.warn('Could not delete task:', e);
+              // Fallback: mark as done
+              await PluginAPI.updateTask(t.id, {
+                isDone: true,
+                notes: `${t.notes || ''}\n\n[AutoPlan] Merged into task: ${mergedTask.id}`,
+              });
+            }
+          }
+
+          showStatus(`Merged ${relatedSplits.length} splits`, 'success');
+          loadSplitGroups();
+        }
+      } catch (e) {
+        console.error('Merge failed:', e);
+        showStatus('Merge failed: ' + e.message, 'error');
+      }
+    }
+
+    // Utility: escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadSettings();
+    });
+
+    // Also try to load immediately in case DOMContentLoaded already fired
+    if (document.readyState !== 'loading') {
+      loadSettings();
+    }
+  </script>
+</body>
+</html>
