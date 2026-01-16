@@ -679,29 +679,87 @@ export const AutoPlanner = {
 
       // Get the most urgent split
       const mostUrgent = splitsWithUrgency[0];
-      const blockMinutes = mostUrgent.split.estimatedHours * 60;
+      let blockMinutes = mostUrgent.split.estimatedHours * 60;
+      const minBlockMinutes = config.blockSizeMinutes ?? DEFAULT_CONFIG.blockSizeMinutes;
+      const remainingMinutesToday = maxMinutesForCurrentDay - currentDayMinutes;
 
-      // Check if we need to move to next day
-      if (currentDayMinutes + blockMinutes > maxMinutesForCurrentDay) {
-        simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
-        currentDayMinutes = 0;
-        maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
-        daysScheduled = daysBetween(startDate, simulatedTime);
-        
-        if (daysScheduled >= maxDaysAhead) {
-          break; // Stop scheduling if we've exceeded max days
-        }
-        
-        // If the new day has no available time (entirely filled by fixed tasks), skip it
-        // Keep advancing until we find a day with available time or exceed maxDaysAhead
-        while (maxMinutesForCurrentDay < blockMinutes && daysScheduled < maxDaysAhead) {
+      // Check if we need to handle day overflow
+      if (blockMinutes > remainingMinutesToday) {
+        // Dynamic splitting: if remaining time today >= minimum block size,
+        // schedule what fits today and create a new split for the remainder
+        if (remainingMinutesToday >= minBlockMinutes) {
+          // Schedule partial block for today, create new split for remainder
+          const remainderMinutes = blockMinutes - remainingMinutesToday;
+          blockMinutes = remainingMinutesToday;
+          
+          // Create a new split for the remaining time
+          const remainderHours = remainderMinutes / 60;
+          const newSplitIndex = mostUrgent.split.totalSplits; // Append at end
+          
+          // Update all splits for this task to reflect new total
+          for (const split of remainingSplits) {
+            if (split.originalTaskId === mostUrgent.split.originalTaskId) {
+              split.totalSplits = newSplitIndex + 1;
+            }
+          }
+          
+          // Determine the title for the new split
+          let newSplitTitle = mostUrgent.split.originalTask.title;
+          if (config.splitPrefix) {
+            newSplitTitle = config.splitPrefix + newSplitTitle;
+          }
+          if (config.splitSuffix !== false) {
+            newSplitTitle = `${newSplitTitle} <${toRoman(newSplitIndex + 1)}>`;
+          }
+          
+          const newSplit = {
+            originalTaskId: mostUrgent.split.originalTaskId,
+            originalTask: mostUrgent.split.originalTask,
+            splitIndex: newSplitIndex,
+            totalSplits: newSplitIndex + 1,
+            title: newSplitTitle,
+            estimatedHours: remainderHours,
+            estimatedMs: remainderMinutes * 60 * 1000,
+            tagIds: mostUrgent.split.tagIds,
+            projectId: mostUrgent.split.projectId,
+            parentId: mostUrgent.split.parentId,
+            prevSplitIndex: mostUrgent.split.splitIndex,
+            nextSplitIndex: null,
+          };
+          
+          // Update the current split's next pointer and estimated time
+          mostUrgent.split.nextSplitIndex = newSplitIndex;
+          mostUrgent.split.estimatedHours = blockMinutes / 60;
+          mostUrgent.split.estimatedMs = blockMinutes * 60 * 1000;
+          mostUrgent.split.totalSplits = newSplitIndex + 1;
+          
+          // Add new split to remainingSplits for future scheduling
+          remainingSplits.push(newSplit);
+        } else {
+          // Not enough time today for minimum block, move to next day
           simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
+          currentDayMinutes = 0;
           maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
           daysScheduled = daysBetween(startDate, simulatedTime);
-        }
-        
-        if (daysScheduled >= maxDaysAhead) {
-          break;
+          
+          if (daysScheduled >= maxDaysAhead) {
+            break; // Stop scheduling if we've exceeded max days
+          }
+          
+          // If the new day has no available time (entirely filled by fixed tasks), skip it
+          // Keep advancing until we find a day with available time or exceed maxDaysAhead
+          while (maxMinutesForCurrentDay < minBlockMinutes && daysScheduled < maxDaysAhead) {
+            simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
+            maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
+            daysScheduled = daysBetween(startDate, simulatedTime);
+          }
+          
+          if (daysScheduled >= maxDaysAhead) {
+            break;
+          }
+          
+          // Continue to next iteration to re-evaluate with the new day
+          continue;
         }
       }
 

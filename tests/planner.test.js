@@ -829,3 +829,179 @@ describe('AutoPlanner.scheduleWithAutoAdjust', () => {
     expect(result.finalUrgencyWeight).toBe(0);
   });
 });
+
+describe('AutoPlanner.schedule with dynamic splitting', () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    blockSizeMinutes: 120, // 2 hours minimum block size
+    tagPriorities: {},
+    durationFormula: 'none',
+    oldnessFormula: 'none',
+    workdayStartHour: 9,
+    workdayHours: 6, // 6-hour workday for easier testing
+    skipDays: [],
+  };
+
+  it('dynamically splits task to fill remaining day time', () => {
+    // Task with 5 hours (split into 2h + 2h + 1h initially)
+    // Start at 13:00 (4 hours into workday), leaving 2 hours today
+    // Should schedule 2h today (from first block) and create remainder for next day
+    const task = createTask({
+      id: 'task-1',
+      title: 'Long Task',
+      timeEstimate: 5 * 60 * 60 * 1000, // 5 hours
+    });
+
+    const splits = TaskSplitter.splitTask(task, 120, config); // 3 splits: 2h, 2h, 1h
+    expect(splits.length).toBe(3);
+
+    // Start at 1 PM (4 hours into 6-hour workday = 2 hours left)
+    const startTime = new Date('2024-01-15T13:00:00');
+    const result = AutoPlanner.schedule(splits, config, [], [], startTime);
+
+    // All task time should be scheduled
+    const totalScheduledMinutes = result.schedule.reduce(
+      (sum, item) => sum + (item.endTime - item.startTime) / 60000,
+      0
+    );
+    expect(totalScheduledMinutes).toBe(5 * 60); // All 5 hours scheduled
+
+    // First block should be scheduled today (2 hours)
+    const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
+    expect(day1.length).toBe(1);
+    expect((day1[0].endTime - day1[0].startTime) / 60000).toBe(120); // 2 hours
+  });
+
+  it('uses available time when block does not fit but remaining >= min block size', () => {
+    // 5-hour task, 3 hours available today (more than min block of 2h)
+    // Should schedule 3 hours today, 2 hours tomorrow
+    const task = createTask({
+      id: 'task-1',
+      title: 'Task',
+      timeEstimate: 5 * 60 * 60 * 1000, // 5 hours
+    });
+
+    const splits = TaskSplitter.splitTask(task, 120, config); // 3 splits: 2h, 2h, 1h
+    
+    // Start at 12:00 (3 hours into 6-hour workday = 3 hours left)
+    const startTime = new Date('2024-01-15T12:00:00');
+    const result = AutoPlanner.schedule(splits, config, [], [], startTime);
+
+    // Check day 1 scheduling (3 hours available)
+    const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
+    const day1Minutes = day1.reduce((sum, s) => sum + (s.endTime - s.startTime) / 60000, 0);
+    
+    // First 2h block fits completely in day 1. After scheduling it, 1 hour remains.
+    // The next block (2h) doesn't fit, and remaining time (1h) < min block size (2h),
+    // so no dynamic split happens - we move to day 2.
+    expect(day1Minutes).toBe(120); // 2 hours (one full block)
+    
+    // Day 2 should have the remaining time
+    const day2 = result.schedule.filter(s => s.startTime.getDate() === 16);
+    const day2Minutes = day2.reduce((sum, s) => sum + (s.endTime - s.startTime) / 60000, 0);
+    expect(day2Minutes).toBe(180); // 3 hours (2h + 1h blocks)
+  });
+
+  it('moves to next day when remaining time < minimum block size', () => {
+    // 4-hour task, 1 hour available today (less than min block of 2h)
+    // Should skip today and schedule everything tomorrow
+    const task = createTask({
+      id: 'task-1',
+      title: 'Task',
+      timeEstimate: 4 * 60 * 60 * 1000, // 4 hours
+    });
+
+    const splits = TaskSplitter.splitTask(task, 120, config); // 2 splits: 2h, 2h
+
+    // Start at 14:00 (5 hours into 6-hour workday = 1 hour left, less than min block)
+    const startTime = new Date('2024-01-15T14:00:00');
+    const result = AutoPlanner.schedule(splits, config, [], [], startTime);
+
+    // No blocks should be scheduled on day 1 (not enough time)
+    const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
+    expect(day1.length).toBe(0);
+
+    // All blocks should be on day 2
+    const day2 = result.schedule.filter(s => s.startTime.getDate() === 16);
+    expect(day2.length).toBe(2);
+  });
+
+  it('dynamically creates new split when partial block scheduled', () => {
+    // 3-hour task (one block), 2 hours available today
+    // Should split into 2h today + 1h tomorrow
+    const task = createTask({
+      id: 'task-1',
+      title: 'Task',
+      timeEstimate: 3 * 60 * 60 * 1000, // 3 hours
+    });
+
+    // Use 60-minute minimum block size for this test
+    const smallBlockConfig = { ...config, blockSizeMinutes: 60 };
+    
+    // Create a single 3-hour split manually (as if from a larger block size)
+    const splits = [{
+      originalTaskId: 'task-1',
+      originalTask: task,
+      splitIndex: 0,
+      totalSplits: 1,
+      title: 'Task <I>',
+      estimatedHours: 3,
+      estimatedMs: 3 * 60 * 60 * 1000,
+      tagIds: task.tagIds || [],
+      projectId: task.projectId,
+      parentId: task.parentId,
+      prevSplitIndex: null,
+      nextSplitIndex: null,
+    }];
+
+    // Start at 13:00 (4 hours into 6-hour workday = 2 hours left)
+    const startTime = new Date('2024-01-15T13:00:00');
+    const result = AutoPlanner.schedule(splits, smallBlockConfig, [], [], startTime);
+
+    // Should have 2 scheduled items now (dynamically created)
+    expect(result.schedule.length).toBe(2);
+
+    // Day 1 should have 2 hours
+    const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
+    expect(day1.length).toBe(1);
+    expect((day1[0].endTime - day1[0].startTime) / 60000).toBe(120);
+
+    // Day 2 should have 1 hour (the remainder)
+    const day2 = result.schedule.filter(s => s.startTime.getDate() === 16);
+    expect(day2.length).toBe(1);
+    expect((day2[0].endTime - day2[0].startTime) / 60000).toBe(60);
+  });
+
+  it('fills day completely when possible with dynamic splits', () => {
+    // 10-hour task, 6 hours available today (full day)
+    // Should fill today completely (6h) and put 4h on next day
+    const task = createTask({
+      id: 'task-1',
+      title: 'Big Task',
+      timeEstimate: 10 * 60 * 60 * 1000, // 10 hours
+    });
+
+    const splits = TaskSplitter.splitTask(task, 120, config); // 5 splits: 2h each
+    expect(splits.length).toBe(5);
+
+    // Start at 9 AM (full 6-hour day available)
+    const startTime = new Date('2024-01-15T09:00:00');
+    const result = AutoPlanner.schedule(splits, config, [], [], startTime);
+
+    // Day 1 should have exactly 6 hours (3 blocks of 2h)
+    const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
+    const day1Minutes = day1.reduce((sum, s) => sum + (s.endTime - s.startTime) / 60000, 0);
+    expect(day1Minutes).toBe(360); // 6 hours
+
+    // Day 2 should have 4 hours (2 blocks of 2h)
+    const day2 = result.schedule.filter(s => s.startTime.getDate() === 16);
+    const day2Minutes = day2.reduce((sum, s) => sum + (s.endTime - s.startTime) / 60000, 0);
+    expect(day2Minutes).toBe(240); // 4 hours
+
+    // Total scheduled should be 10 hours
+    const totalMinutes = result.schedule.reduce(
+      (sum, s) => sum + (s.endTime - s.startTime) / 60000, 0
+    );
+    expect(totalMinutes).toBe(600);
+  });
+});
