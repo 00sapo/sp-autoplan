@@ -30,6 +30,11 @@ const DEFAULT_CONFIG = {
   durationWeight: 1.0,
   oldnessFormula: 'linear', // 'linear', 'log', 'exponential', 'none'
   oldnessWeight: 1.0,
+  deadlineFormula: 'linear', // 'linear', 'aggressive', 'none' - how deadline urgency increases as due date approaches
+  deadlineWeight: 12.0, // Weight for deadline urgency (similar to taskcheck's urgency.due.coefficient default)
+  // Dynamic scheduling options (auto-adjust urgency weight when deadlines can't be met)
+  autoAdjustUrgency: true, // If true, reduce urgency weight when tasks can't meet deadlines
+  urgencyWeight: 1.0, // Weight for non-deadline urgency factors (0.0 to 1.0)
   maxDaysAhead: 30,
   autoRunOnStart: false,
   splitPrefix: '', // Prefix for split task names (empty = use original name)
@@ -43,6 +48,12 @@ const DEFAULT_CONFIG = {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
+
+// Milliseconds per day constant for date calculations
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+// Urgency weight reduction step for auto-adjust scheduling
+const URGENCY_WEIGHT_STEP = 0.1;
 
 /**
  * Convert number to Roman numerals
@@ -77,7 +88,7 @@ function hoursBetween(date1, date2) {
  * Calculate days between two dates
  */
 function daysBetween(date1, date2) {
-  return Math.abs(date2 - date1) / (1000 * 60 * 60 * 24);
+  return Math.abs(date2 - date1) / MS_PER_DAY;
 }
 
 /**
@@ -106,6 +117,91 @@ function getRemainingHours(task) {
   const estimated = getEstimatedHours(task);
   const spent = task.timeSpent ? task.timeSpent / (1000 * 60 * 60) : 0;
   return Math.max(0, estimated - spent);
+}
+
+/**
+ * Parse a deadline from task notes
+ * Supports formats like:
+ *   - "Due: 2024-01-20" or "due: 2024-01-20"
+ *   - "Deadline: 2024-01-20" or "deadline: 2024-01-20"
+ *   - "Due: Jan 20, 2024"
+ *   - "Due: 20/01/2024" (DD/MM/YYYY)
+ *   - "Due: 01/20/2024" (MM/DD/YYYY) - ambiguous, treated as MM/DD/YYYY
+ * @param {string} notes - The notes field from a task
+ * @returns {Date|null} The parsed due date or null if not found
+ */
+function parseDeadlineFromNotes(notes) {
+  if (!notes || typeof notes !== 'string') return null;
+  
+  // Match patterns like "Due: <date>" or "Deadline: <date>"
+  const patterns = [
+    // ISO format: Due: 2024-01-20 or Deadline: 2024-01-20
+    /(?:due|deadline)\s*:\s*(\d{4}-\d{2}-\d{2})/i,
+    // Named month: Due: Jan 20, 2024
+    /(?:due|deadline)\s*:\s*([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/i,
+    // Slash format: Due: 01/20/2024 or 20/01/2024
+    /(?:due|deadline)\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = notes.match(pattern);
+    if (match) {
+      const dateStr = match[1];
+      
+      // Try parsing the date
+      // Handle slash format specially (assume MM/DD/YYYY for US format)
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          const [first, second, year] = parts.map(p => parseInt(p, 10));
+          // Validate the parsed values
+          if (first > 12 && second >= 1 && second <= 12) {
+            // DD/MM/YYYY format (day > 12 indicates it's the day)
+            return new Date(year, second - 1, first);
+          }
+          // MM/DD/YYYY format - validate day is reasonable
+          if (first >= 1 && first <= 12 && second >= 1 && second <= 31) {
+            return new Date(year, first - 1, second);
+          }
+          // Invalid date parts, continue to next pattern
+        }
+      } else {
+        // Standard date parsing for other formats
+        const parsed = new Date(dateStr);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get the due date of a task
+ * Priority:
+ *   1. Deadline parsed from notes (allows setting deadline separately from scheduled time)
+ *   2. dueDate field (Super Productivity's all-day due date)
+ *   3. Note: dueWithTime is NOT used here because SP uses it for scheduling, not deadlines
+ * 
+ * @returns {Date|null} The due date or null if not set
+ */
+function getTaskDueDate(task) {
+  // First check for deadline in notes - this allows users to set deadlines
+  // separately from the scheduled time (which uses dueWithTime in SP)
+  const notesDeadline = parseDeadlineFromNotes(task.notes);
+  if (notesDeadline) {
+    return notesDeadline;
+  }
+  
+  // Super Productivity's dueDate is for all-day due dates
+  // Note: We don't use dueWithTime here because AutoPlan uses it for scheduling
+  if (task.dueDate) {
+    return new Date(task.dueDate);
+  }
+  
+  return null;
 }
 
 /**
@@ -206,6 +302,71 @@ const PriorityCalculator = {
   },
 
   /**
+   * Calculate deadline-based priority factor
+   * Tasks with approaching deadlines get higher priority
+   * Uses a 21-day range similar to taskcheck's urgency.due algorithm
+   * 
+   * @param {Object} task - The task to calculate deadline urgency for
+   * @param {string} formula - 'linear', 'aggressive', or 'none'
+   * @param {number} weight - Weight for deadline urgency (default 12.0 like taskcheck)
+   * @param {Date} now - Current time for calculations
+   * @returns {number} - Priority boost based on deadline proximity
+   */
+  calculateDeadlinePriority(task, formula, weight, now = new Date()) {
+    if (formula === 'none') return 0;
+    if (weight <= 0) return 0;
+
+    const dueDate = getTaskDueDate(task);
+    if (!dueDate) return 0;
+
+    // Calculate days until due (negative = overdue)
+    const daysUntilDue = (dueDate - now) / MS_PER_DAY;
+
+    let factor;
+    switch (formula) {
+      case 'aggressive':
+        // More aggressive urgency curve for very close deadlines
+        // Overdue (7+ days overdue) = 1.0 (maximum)
+        // Just due = 0.9
+        // 1 week away = 0.5
+        // 2+ weeks away = 0.2 (minimum)
+        if (daysUntilDue <= -7) {
+          factor = 1.0;
+        } else if (daysUntilDue <= 0) {
+          // Overdue (0-7 days overdue): 0.9 to 1.0
+          factor = 0.9 + (-daysUntilDue / 7) * 0.1;
+        } else if (daysUntilDue <= 7) {
+          // Within 1 week: 0.5 to 0.9
+          factor = 0.9 - (daysUntilDue / 7) * 0.4;
+        } else if (daysUntilDue <= 14) {
+          // Within 2 weeks: 0.2 to 0.5
+          factor = 0.5 - ((daysUntilDue - 7) / 7) * 0.3;
+        } else {
+          factor = 0.2;
+        }
+        break;
+      case 'linear':
+      default:
+        // Linear urgency similar to taskcheck
+        // Maps a 21-day range to 0.2 - 1.0
+        // Overdue (7+ days) = 1.0
+        // 14 days in future = 0.2
+        if (daysUntilDue <= -7) {
+          factor = 1.0;
+        } else if (daysUntilDue >= 14) {
+          factor = 0.2;
+        } else {
+          // Linear interpolation from -7 days (1.0) to +14 days (0.2)
+          // Range of 21 days maps to range of 0.8
+          factor = 1.0 - ((daysUntilDue + 7) / 21) * 0.8;
+        }
+        break;
+    }
+
+    return factor * weight;
+  },
+
+  /**
    * Calculate total urgency/priority for a task
    * 
    * @param {Object} task - The task to calculate urgency for
@@ -223,14 +384,23 @@ const PriorityCalculator = {
     const oldnessPriority = this.calculateOldnessPriority(
       task, config.oldnessFormula || 'none', config.oldnessWeight ?? 1.0, now
     );
+    const deadlinePriority = this.calculateDeadlinePriority(
+      task, config.deadlineFormula || 'none', config.deadlineWeight ?? 12.0, now
+    );
+
+    // Apply urgencyWeight to non-deadline factors (like taskcheck's weight_urgency)
+    // This allows dynamic scheduling to prioritize deadline-based urgency when needed
+    const urgencyWeight = config.urgencyWeight ?? 1.0;
+    const nonDeadlineUrgency = (tagPriority + projectPriority + durationPriority + oldnessPriority) * urgencyWeight;
 
     return {
-      total: tagPriority + projectPriority + durationPriority + oldnessPriority,
+      total: nonDeadlineUrgency + deadlinePriority,
       components: {
-        tag: tagPriority,
-        project: projectPriority,
-        duration: durationPriority,
-        oldness: oldnessPriority
+        tag: tagPriority * urgencyWeight,
+        project: projectPriority * urgencyWeight,
+        duration: durationPriority * urgencyWeight,
+        oldness: oldnessPriority * urgencyWeight,
+        deadline: deadlinePriority
       }
     };
   }
@@ -437,9 +607,11 @@ const AutoPlanner = {
    * @param {Array} allProjects - All available projects
    * @param {Date} startTime - When to start scheduling from
    * @param {Array} fixedTasks - Tasks that should not be rescheduled (optional)
+   * @returns {Object} - { schedule: Array, deadlineMisses: Array } where schedule contains scheduled items
+   *                     and deadlineMisses contains tasks that will miss their deadlines
    */
   schedule(splits, config, allTags, allProjects = [], startTime = new Date(), fixedTasks = []) {
-    if (splits.length === 0) return [];
+    if (splits.length === 0) return { schedule: [], deadlineMisses: [] };
 
     const schedule = [];
     const remainingSplits = [...splits];
@@ -523,29 +695,87 @@ const AutoPlanner = {
 
       // Get the most urgent split
       const mostUrgent = splitsWithUrgency[0];
-      const blockMinutes = mostUrgent.split.estimatedHours * 60;
+      let blockMinutes = mostUrgent.split.estimatedHours * 60;
+      const minBlockMinutes = config.blockSizeMinutes ?? DEFAULT_CONFIG.blockSizeMinutes;
+      const remainingMinutesToday = maxMinutesForCurrentDay - currentDayMinutes;
 
-      // Check if we need to move to next day
-      if (currentDayMinutes + blockMinutes > maxMinutesForCurrentDay) {
-        simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
-        currentDayMinutes = 0;
-        maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
-        daysScheduled = daysBetween(startDate, simulatedTime);
-        
-        if (daysScheduled >= maxDaysAhead) {
-          break; // Stop scheduling if we've exceeded max days
-        }
-        
-        // If the new day has no available time (entirely filled by fixed tasks), skip it
-        // Keep advancing until we find a day with available time or exceed maxDaysAhead
-        while (maxMinutesForCurrentDay < blockMinutes && daysScheduled < maxDaysAhead) {
+      // Check if we need to handle day overflow
+      if (blockMinutes > remainingMinutesToday) {
+        // Dynamic splitting: if remaining time today >= minimum block size,
+        // schedule what fits today and create a new split for the remainder
+        if (remainingMinutesToday >= minBlockMinutes) {
+          // Schedule partial block for today, create new split for remainder
+          const remainderMinutes = blockMinutes - remainingMinutesToday;
+          blockMinutes = remainingMinutesToday;
+          
+          // Create a new split for the remaining time
+          const remainderHours = remainderMinutes / 60;
+          const newSplitIndex = mostUrgent.split.totalSplits; // Append at end
+          
+          // Update all splits for this task to reflect new total
+          for (const split of remainingSplits) {
+            if (split.originalTaskId === mostUrgent.split.originalTaskId) {
+              split.totalSplits = newSplitIndex + 1;
+            }
+          }
+          
+          // Determine the title for the new split
+          let newSplitTitle = mostUrgent.split.originalTask.title;
+          if (config.splitPrefix) {
+            newSplitTitle = config.splitPrefix + newSplitTitle;
+          }
+          if (config.splitSuffix !== false) {
+            newSplitTitle = `${newSplitTitle} <${toRoman(newSplitIndex + 1)}>`;
+          }
+          
+          const newSplit = {
+            originalTaskId: mostUrgent.split.originalTaskId,
+            originalTask: mostUrgent.split.originalTask,
+            splitIndex: newSplitIndex,
+            totalSplits: newSplitIndex + 1,
+            title: newSplitTitle,
+            estimatedHours: remainderHours,
+            estimatedMs: remainderMinutes * 60 * 1000,
+            tagIds: mostUrgent.split.tagIds,
+            projectId: mostUrgent.split.projectId,
+            parentId: mostUrgent.split.parentId,
+            prevSplitIndex: mostUrgent.split.splitIndex,
+            nextSplitIndex: null,
+          };
+          
+          // Update the current split's next pointer and estimated time
+          mostUrgent.split.nextSplitIndex = newSplitIndex;
+          mostUrgent.split.estimatedHours = blockMinutes / 60;
+          mostUrgent.split.estimatedMs = blockMinutes * 60 * 1000;
+          mostUrgent.split.totalSplits = newSplitIndex + 1;
+          
+          // Add new split to remainingSplits for future scheduling
+          remainingSplits.push(newSplit);
+        } else {
+          // Not enough time today for minimum block, move to next day
           simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
+          currentDayMinutes = 0;
           maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
           daysScheduled = daysBetween(startDate, simulatedTime);
-        }
-        
-        if (daysScheduled >= maxDaysAhead) {
-          break;
+          
+          if (daysScheduled >= maxDaysAhead) {
+            break; // Stop scheduling if we've exceeded max days
+          }
+          
+          // If the new day has no available time (entirely filled by fixed tasks), skip it
+          // Keep advancing until we find a day with available time or exceed maxDaysAhead
+          while (maxMinutesForCurrentDay < minBlockMinutes && daysScheduled < maxDaysAhead) {
+            simulatedTime = this.advanceToNextWorkday(simulatedTime, skipDays, workdayStartHour);
+            maxMinutesForCurrentDay = getAvailableMinutesForDay(simulatedTime);
+            daysScheduled = daysBetween(startDate, simulatedTime);
+          }
+          
+          if (daysScheduled >= maxDaysAhead) {
+            break;
+          }
+          
+          // Continue to next iteration to re-evaluate with the new day
+          continue;
         }
       }
 
@@ -580,7 +810,172 @@ const AutoPlanner = {
       remainingSplits.splice(removeIndex, 1);
     }
 
-    return schedule;
+    // Check for deadline misses: identify tasks that will miss their deadlines
+    // This includes tasks where scheduled completion is after the due date,
+    // and tasks with unscheduled splits that couldn't fit in the scheduling window
+    const deadlineMisses = this.checkDeadlineMisses(schedule, splits);
+
+    return { schedule, deadlineMisses };
+  },
+
+  /**
+   * Check for tasks that will miss their deadlines based on the schedule
+   * @param {Array} schedule - The generated schedule
+   * @param {Array} allSplits - All task splits (to check unscheduled tasks)
+   * @returns {Array} - Array of deadline miss objects with task info and dates
+   */
+  checkDeadlineMisses(schedule, allSplits) {
+    const deadlineMisses = [];
+    
+    // Group scheduled items by original task ID
+    const scheduledByTask = new Map();
+    for (const item of schedule) {
+      const taskId = item.split.originalTaskId;
+      if (!scheduledByTask.has(taskId)) {
+        scheduledByTask.set(taskId, []);
+      }
+      scheduledByTask.get(taskId).push(item);
+    }
+
+    // Group all splits by original task ID to check for unscheduled splits
+    const allSplitsByTask = new Map();
+    for (const split of allSplits) {
+      const taskId = split.originalTaskId;
+      if (!allSplitsByTask.has(taskId)) {
+        allSplitsByTask.set(taskId, []);
+      }
+      allSplitsByTask.get(taskId).push(split);
+    }
+
+    // Check each unique task
+    const checkedTasks = new Set();
+    
+    for (const [taskId, scheduledItems] of scheduledByTask) {
+      if (checkedTasks.has(taskId)) continue;
+      checkedTasks.add(taskId);
+
+      const originalTask = scheduledItems[0].split.originalTask;
+      const dueDate = getTaskDueDate(originalTask);
+      
+      if (!dueDate) continue; // No deadline, no miss possible
+
+      // Find the last scheduled end time for this task
+      const lastEndTime = scheduledItems.reduce((latest, item) => {
+        return item.endTime > latest ? item.endTime : latest;
+      }, scheduledItems[0].endTime);
+
+      // Check if all splits for this task are scheduled
+      const allTaskSplits = allSplitsByTask.get(taskId) || [];
+      const scheduledSplitIndices = new Set(scheduledItems.map(i => i.split.splitIndex));
+      const unscheduledSplits = allTaskSplits.filter(s => !scheduledSplitIndices.has(s.splitIndex));
+
+      // Task misses deadline if:
+      // 1. The last scheduled split ends after the due date, OR
+      // 2. Some splits couldn't be scheduled at all
+      if (lastEndTime > dueDate || unscheduledSplits.length > 0) {
+        deadlineMisses.push({
+          taskId,
+          taskTitle: originalTask.title,
+          dueDate,
+          scheduledCompletionDate: lastEndTime,
+          unscheduledSplits: unscheduledSplits.length,
+          totalSplits: allTaskSplits.length,
+          missedBy: unscheduledSplits.length > 0 ? null : Math.ceil((lastEndTime - dueDate) / MS_PER_DAY), // days
+        });
+      }
+    }
+
+    // Also check for tasks with deadlines that have NO scheduled splits at all
+    for (const [taskId, splits] of allSplitsByTask) {
+      if (checkedTasks.has(taskId)) continue;
+      
+      const originalTask = splits[0].originalTask;
+      const dueDate = getTaskDueDate(originalTask);
+      
+      if (!dueDate) continue;
+
+      // This task has a deadline but no splits were scheduled
+      deadlineMisses.push({
+        taskId,
+        taskTitle: originalTask.title,
+        dueDate,
+        scheduledCompletionDate: null,
+        unscheduledSplits: splits.length,
+        totalSplits: splits.length,
+        missedBy: null, // Unknown since nothing was scheduled
+      });
+    }
+
+    return deadlineMisses;
+  },
+
+  /**
+   * Schedule with automatic urgency adjustment
+   * If tasks miss their deadlines, reduce the urgency weight and retry
+   * until all deadlines are met or the weight reaches 0.
+   * 
+   * This implements taskcheck's auto-adjust-urgency feature.
+   * 
+   * @param {Array} splits - Task splits to schedule
+   * @param {Object} config - Configuration object
+   * @param {Array} allTags - All available tags
+   * @param {Array} allProjects - All available projects
+   * @param {Date} startTime - When to start scheduling from
+   * @param {Array} fixedTasks - Tasks that should not be rescheduled (optional)
+   * @returns {Object} - { schedule, deadlineMisses, finalUrgencyWeight, adjustmentAttempts }
+   */
+  scheduleWithAutoAdjust(splits, config, allTags, allProjects = [], startTime = new Date(), fixedTasks = []) {
+    const autoAdjust = config.autoAdjustUrgency ?? true;
+    const initialWeight = config.urgencyWeight ?? 1.0;
+    
+    if (!autoAdjust) {
+      // No auto-adjust, just run once
+      const result = this.schedule(splits, config, allTags, allProjects, startTime, fixedTasks);
+      return {
+        ...result,
+        finalUrgencyWeight: initialWeight,
+        adjustmentAttempts: 0,
+      };
+    }
+    
+    let currentWeight = initialWeight;
+    let attempts = 0;
+    let result;
+    
+    // Keep trying with reduced weight until no deadline misses or weight reaches 0
+    while (currentWeight >= 0) {
+      // Create a modified config with current weight
+      const adjustedConfig = {
+        ...config,
+        urgencyWeight: currentWeight,
+      };
+      
+      result = this.schedule(splits, adjustedConfig, allTags, allProjects, startTime, fixedTasks);
+      
+      // If no deadline misses, we're done
+      if (result.deadlineMisses.length === 0) {
+        break;
+      }
+      
+      // Reduce weight by the step amount and try again
+      currentWeight = Math.round((currentWeight - URGENCY_WEIGHT_STEP) * 10) / 10; // Round to avoid floating point issues
+      attempts++;
+      
+      // Safety check - don't go below 0
+      if (currentWeight < 0) {
+        currentWeight = 0;
+        // One final try with weight = 0
+        const finalConfig = { ...config, urgencyWeight: 0 };
+        result = this.schedule(splits, finalConfig, allTags, allProjects, startTime, fixedTasks);
+        break;
+      }
+    }
+    
+    return {
+      ...result,
+      finalUrgencyWeight: currentWeight,
+      adjustmentAttempts: attempts,
+    };
   },
 };
 
@@ -783,6 +1178,7 @@ AutoPlanner.applySchedule = async function(schedule, originalTasks) {
           timeEstimate: item.split.estimatedMs,
           tagIds: item.split.tagIds,
           projectId: item.split.projectId,
+          parentId: item.split.parentId,
           notes: TaskMerger.generateSplitNotes(
             item.split.splitIndex,
             item.split.totalSplits,
