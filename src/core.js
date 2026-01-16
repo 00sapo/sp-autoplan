@@ -30,6 +30,9 @@ export const DEFAULT_CONFIG = {
 // UTILITY FUNCTIONS
 // ============================================================================
 
+// Milliseconds per day constant for date calculations
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
 /**
  * Convert number to Roman numerals
  */
@@ -63,7 +66,7 @@ export function hoursBetween(date1, date2) {
  * Calculate days between two dates
  */
 export function daysBetween(date1, date2) {
-  return Math.abs(date2 - date1) / (1000 * 60 * 60 * 24);
+  return Math.abs(date2 - date1) / MS_PER_DAY;
 }
 
 /**
@@ -227,8 +230,7 @@ export const PriorityCalculator = {
     if (!dueDate) return 0;
 
     // Calculate days until due (negative = overdue)
-    const msPerDay = 1000 * 60 * 60 * 24;
-    const daysUntilDue = (dueDate - now) / msPerDay;
+    const daysUntilDue = (dueDate - now) / MS_PER_DAY;
 
     let factor;
     switch (formula) {
@@ -655,7 +657,9 @@ export const AutoPlanner = {
       remainingSplits.splice(removeIndex, 1);
     }
 
-    // Check for deadline misses: find tasks where the last scheduled split ends after the due date
+    // Check for deadline misses: identify tasks that will miss their deadlines
+    // This includes tasks where scheduled completion is after the due date,
+    // and tasks with unscheduled splits that couldn't fit in the scheduling window
     const deadlineMisses = this.checkDeadlineMisses(schedule, splits);
 
     return { schedule, deadlineMisses };
@@ -723,7 +727,7 @@ export const AutoPlanner = {
           scheduledCompletionDate: lastEndTime,
           unscheduledSplits: unscheduledSplits.length,
           totalSplits: allTaskSplits.length,
-          missedBy: unscheduledSplits.length > 0 ? null : Math.ceil((lastEndTime - dueDate) / (1000 * 60 * 60 * 24)), // days
+          missedBy: unscheduledSplits.length > 0 ? null : Math.ceil((lastEndTime - dueDate) / MS_PER_DAY), // days
         });
       }
     }
