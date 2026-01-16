@@ -14,6 +14,8 @@ export const DEFAULT_CONFIG = {
   durationWeight: 1.0,
   oldnessFormula: 'linear', // 'linear', 'log', 'exponential', 'none'
   oldnessWeight: 1.0,
+  deadlineFormula: 'linear', // 'linear', 'aggressive', 'none' - how deadline urgency increases as due date approaches
+  deadlineWeight: 12.0, // Weight for deadline urgency (similar to taskcheck's urgency.due.coefficient default)
   maxDaysAhead: 30,
   autoRunOnStart: false,
   splitPrefix: '', // Prefix for split task names (empty = use original name)
@@ -90,6 +92,23 @@ export function getRemainingHours(task) {
   const estimated = getEstimatedHours(task);
   const spent = task.timeSpent ? task.timeSpent / (1000 * 60 * 60) : 0;
   return Math.max(0, estimated - spent);
+}
+
+/**
+ * Get the due date of a task
+ * Supports both 'dueDate' and 'dueWithTime' fields from Super Productivity
+ * @returns {Date|null} The due date or null if not set
+ */
+export function getTaskDueDate(task) {
+  // Super Productivity uses dueWithTime for tasks with specific due times
+  // and dueDate for all-day due dates (both as timestamps in milliseconds)
+  if (task.dueWithTime) {
+    return new Date(task.dueWithTime);
+  }
+  if (task.dueDate) {
+    return new Date(task.dueDate);
+  }
+  return null;
 }
 
 /**
@@ -190,6 +209,72 @@ export const PriorityCalculator = {
   },
 
   /**
+   * Calculate deadline-based priority factor
+   * Tasks with approaching deadlines get higher priority
+   * Uses a 21-day range similar to taskcheck's urgency.due algorithm
+   * 
+   * @param {Object} task - The task to calculate deadline urgency for
+   * @param {string} formula - 'linear', 'aggressive', or 'none'
+   * @param {number} weight - Weight for deadline urgency (default 12.0 like taskcheck)
+   * @param {Date} now - Current time for calculations
+   * @returns {number} - Priority boost based on deadline proximity
+   */
+  calculateDeadlinePriority(task, formula, weight, now = new Date()) {
+    if (formula === 'none') return 0;
+    if (weight <= 0) return 0;
+
+    const dueDate = getTaskDueDate(task);
+    if (!dueDate) return 0;
+
+    // Calculate days until due (negative = overdue)
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysUntilDue = (dueDate - now) / msPerDay;
+
+    let factor;
+    switch (formula) {
+      case 'aggressive':
+        // More aggressive urgency curve for very close deadlines
+        // Overdue (7+ days overdue) = 1.0 (maximum)
+        // Just due = 0.9
+        // 1 week away = 0.5
+        // 2+ weeks away = 0.2 (minimum)
+        if (daysUntilDue <= -7) {
+          factor = 1.0;
+        } else if (daysUntilDue <= 0) {
+          // Overdue (0-7 days overdue): 0.9 to 1.0
+          factor = 0.9 + (-daysUntilDue / 7) * 0.1;
+        } else if (daysUntilDue <= 7) {
+          // Within 1 week: 0.5 to 0.9
+          factor = 0.9 - (daysUntilDue / 7) * 0.4;
+        } else if (daysUntilDue <= 14) {
+          // Within 2 weeks: 0.2 to 0.5
+          factor = 0.5 - ((daysUntilDue - 7) / 7) * 0.3;
+        } else {
+          factor = 0.2;
+        }
+        break;
+      case 'linear':
+      default:
+        // Linear urgency similar to taskcheck
+        // Maps a 21-day range to 0.2 - 1.0
+        // Overdue (7+ days) = 1.0
+        // 14 days in future = 0.2
+        if (daysUntilDue <= -7) {
+          factor = 1.0;
+        } else if (daysUntilDue >= 14) {
+          factor = 0.2;
+        } else {
+          // Linear interpolation from -7 days (1.0) to +14 days (0.2)
+          // Range of 21 days maps to range of 0.8
+          factor = 1.0 - ((daysUntilDue + 7) / 21) * 0.8;
+        }
+        break;
+    }
+
+    return factor * weight;
+  },
+
+  /**
    * Calculate total urgency/priority for a task
    * 
    * @param {Object} task - The task to calculate urgency for
@@ -207,14 +292,18 @@ export const PriorityCalculator = {
     const oldnessPriority = this.calculateOldnessPriority(
       task, config.oldnessFormula || 'none', config.oldnessWeight ?? 1.0, now
     );
+    const deadlinePriority = this.calculateDeadlinePriority(
+      task, config.deadlineFormula || 'none', config.deadlineWeight ?? 12.0, now
+    );
 
     return {
-      total: tagPriority + projectPriority + durationPriority + oldnessPriority,
+      total: tagPriority + projectPriority + durationPriority + oldnessPriority + deadlinePriority,
       components: {
         tag: tagPriority,
         project: projectPriority,
         duration: durationPriority,
-        oldness: oldnessPriority
+        oldness: oldnessPriority,
+        deadline: deadlinePriority
       }
     };
   }
@@ -421,9 +510,11 @@ export const AutoPlanner = {
    * @param {Array} allProjects - All available projects
    * @param {Date} startTime - When to start scheduling from
    * @param {Array} fixedTasks - Tasks that should not be rescheduled (optional)
+   * @returns {Object} - { schedule: Array, deadlineMisses: Array } where schedule contains scheduled items
+   *                     and deadlineMisses contains tasks that will miss their deadlines
    */
   schedule(splits, config, allTags, allProjects = [], startTime = new Date(), fixedTasks = []) {
-    if (splits.length === 0) return [];
+    if (splits.length === 0) return { schedule: [], deadlineMisses: [] };
 
     const schedule = [];
     const remainingSplits = [...splits];
@@ -564,7 +655,101 @@ export const AutoPlanner = {
       remainingSplits.splice(removeIndex, 1);
     }
 
-    return schedule;
+    // Check for deadline misses: find tasks where the last scheduled split ends after the due date
+    const deadlineMisses = this.checkDeadlineMisses(schedule, splits);
+
+    return { schedule, deadlineMisses };
+  },
+
+  /**
+   * Check for tasks that will miss their deadlines based on the schedule
+   * @param {Array} schedule - The generated schedule
+   * @param {Array} allSplits - All task splits (to check unscheduled tasks)
+   * @returns {Array} - Array of deadline miss objects with task info and dates
+   */
+  checkDeadlineMisses(schedule, allSplits) {
+    const deadlineMisses = [];
+    
+    // Group scheduled items by original task ID
+    const scheduledByTask = new Map();
+    for (const item of schedule) {
+      const taskId = item.split.originalTaskId;
+      if (!scheduledByTask.has(taskId)) {
+        scheduledByTask.set(taskId, []);
+      }
+      scheduledByTask.get(taskId).push(item);
+    }
+
+    // Group all splits by original task ID to check for unscheduled splits
+    const allSplitsByTask = new Map();
+    for (const split of allSplits) {
+      const taskId = split.originalTaskId;
+      if (!allSplitsByTask.has(taskId)) {
+        allSplitsByTask.set(taskId, []);
+      }
+      allSplitsByTask.get(taskId).push(split);
+    }
+
+    // Check each unique task
+    const checkedTasks = new Set();
+    
+    for (const [taskId, scheduledItems] of scheduledByTask) {
+      if (checkedTasks.has(taskId)) continue;
+      checkedTasks.add(taskId);
+
+      const originalTask = scheduledItems[0].split.originalTask;
+      const dueDate = getTaskDueDate(originalTask);
+      
+      if (!dueDate) continue; // No deadline, no miss possible
+
+      // Find the last scheduled end time for this task
+      const lastEndTime = scheduledItems.reduce((latest, item) => {
+        return item.endTime > latest ? item.endTime : latest;
+      }, scheduledItems[0].endTime);
+
+      // Check if all splits for this task are scheduled
+      const allTaskSplits = allSplitsByTask.get(taskId) || [];
+      const scheduledSplitIndices = new Set(scheduledItems.map(i => i.split.splitIndex));
+      const unscheduledSplits = allTaskSplits.filter(s => !scheduledSplitIndices.has(s.splitIndex));
+
+      // Task misses deadline if:
+      // 1. The last scheduled split ends after the due date, OR
+      // 2. Some splits couldn't be scheduled at all
+      if (lastEndTime > dueDate || unscheduledSplits.length > 0) {
+        deadlineMisses.push({
+          taskId,
+          taskTitle: originalTask.title,
+          dueDate,
+          scheduledCompletionDate: lastEndTime,
+          unscheduledSplits: unscheduledSplits.length,
+          totalSplits: allTaskSplits.length,
+          missedBy: unscheduledSplits.length > 0 ? null : Math.ceil((lastEndTime - dueDate) / (1000 * 60 * 60 * 24)), // days
+        });
+      }
+    }
+
+    // Also check for tasks with deadlines that have NO scheduled splits at all
+    for (const [taskId, splits] of allSplitsByTask) {
+      if (checkedTasks.has(taskId)) continue;
+      
+      const originalTask = splits[0].originalTask;
+      const dueDate = getTaskDueDate(originalTask);
+      
+      if (!dueDate) continue;
+
+      // This task has a deadline but no splits were scheduled
+      deadlineMisses.push({
+        taskId,
+        taskTitle: originalTask.title,
+        dueDate,
+        scheduledCompletionDate: null,
+        unscheduledSplits: splits.length,
+        totalSplits: splits.length,
+        missedBy: null, // Unknown since nothing was scheduled
+      });
+    }
+
+    return deadlineMisses;
   },
 };
 

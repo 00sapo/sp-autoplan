@@ -10,6 +10,7 @@ import {
   getTaskAgeInDays,
   getEstimatedHours,
   getRemainingHours,
+  getTaskDueDate,
   escapeRegex,
 } from '../src/core.js';
 
@@ -171,5 +172,41 @@ describe('escapeRegex', () => {
 
   it('handles strings without special characters', () => {
     expect(escapeRegex('hello world')).toBe('hello world');
+  });
+});
+
+describe('getTaskDueDate', () => {
+  it('returns Date from dueWithTime field', () => {
+    const timestamp = new Date('2024-01-20T15:00:00').getTime();
+    const task = { dueWithTime: timestamp };
+    const result = getTaskDueDate(task);
+    expect(result).toBeInstanceOf(Date);
+    expect(result.getTime()).toBe(timestamp);
+  });
+
+  it('returns Date from dueDate field when dueWithTime is not set', () => {
+    const timestamp = new Date('2024-01-20').getTime();
+    const task = { dueDate: timestamp };
+    const result = getTaskDueDate(task);
+    expect(result).toBeInstanceOf(Date);
+    expect(result.getTime()).toBe(timestamp);
+  });
+
+  it('prefers dueWithTime over dueDate', () => {
+    const dueWithTime = new Date('2024-01-20T15:00:00').getTime();
+    const dueDate = new Date('2024-01-21').getTime();
+    const task = { dueWithTime, dueDate };
+    const result = getTaskDueDate(task);
+    expect(result.getTime()).toBe(dueWithTime);
+  });
+
+  it('returns null when no due date is set', () => {
+    const task = { title: 'Test Task' };
+    expect(getTaskDueDate(task)).toBe(null);
+  });
+
+  it('returns null for task with undefined dueDate', () => {
+    const task = { dueDate: undefined };
+    expect(getTaskDueDate(task)).toBe(null);
   });
 });

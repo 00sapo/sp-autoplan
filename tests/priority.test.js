@@ -217,6 +217,77 @@ describe('PriorityCalculator.calculateOldnessPriority', () => {
   });
 });
 
+describe('PriorityCalculator.calculateDeadlinePriority', () => {
+  it('returns 0 for tasks without due date', () => {
+    const task = createTask();
+    expect(PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12)).toBe(0);
+  });
+
+  it('returns 0 when formula is none', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-01-20').getTime() });
+    expect(PriorityCalculator.calculateDeadlinePriority(task, 'none', 12, now)).toBe(0);
+  });
+
+  it('returns 0 for zero weight', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-01-20').getTime() });
+    expect(PriorityCalculator.calculateDeadlinePriority(task, 'linear', 0, now)).toBe(0);
+  });
+
+  it('returns maximum urgency for overdue tasks (7+ days)', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-01-05').getTime() }); // 10 days overdue
+    const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
+    expect(result).toBe(12); // factor = 1.0 * weight 12
+  });
+
+  it('returns minimum urgency for tasks far in future (14+ days)', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-02-01').getTime() }); // 17 days away
+    const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
+    expect(result).toBeCloseTo(2.4, 1); // factor = 0.2 * weight 12
+  });
+
+  it('returns high urgency for tasks due soon (1-7 days)', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-01-18').getTime() }); // 3 days away
+    const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
+    // 3 days until due, factor = 1.0 - ((3 + 7) / 21) * 0.8 = 1.0 - 0.38 = 0.62
+    expect(result).toBeGreaterThan(5);
+    expect(result).toBeLessThan(10);
+  });
+
+  it('returns moderate urgency for tasks due in 1-2 weeks', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueDate: new Date('2024-01-25').getTime() }); // 10 days away
+    const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
+    expect(result).toBeGreaterThan(2.4); // More than minimum
+    expect(result).toBeLessThan(8); // Less than near-due
+  });
+
+  it('supports dueWithTime field', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({ dueWithTime: new Date('2024-01-20').getTime() });
+    const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
+    expect(result).toBeGreaterThan(0);
+  });
+
+  it('calculates aggressive formula correctly', () => {
+    const now = new Date('2024-01-15');
+    
+    // Task due in 3 days - should have high urgency
+    const nearDue = createTask({ dueDate: new Date('2024-01-18').getTime() });
+    const nearResult = PriorityCalculator.calculateDeadlinePriority(nearDue, 'aggressive', 12, now);
+    
+    // Task due in 10 days - should have moderate urgency
+    const farDue = createTask({ dueDate: new Date('2024-01-25').getTime() });
+    const farResult = PriorityCalculator.calculateDeadlinePriority(farDue, 'aggressive', 12, now);
+    
+    expect(nearResult).toBeGreaterThan(farResult);
+  });
+});
+
 describe('PriorityCalculator.calculateUrgency', () => {
   const allTags = [{ id: 'tag-1', name: 'urgent' }];
   const allProjects = [{ id: 'proj-1', title: 'Work' }];
@@ -245,6 +316,7 @@ describe('PriorityCalculator.calculateUrgency', () => {
     expect(result.components.project).toBe(5);
     expect(result.components.duration).toBe(2);
     expect(result.components.oldness).toBe(5);
+    expect(result.components.deadline).toBe(0); // No due date
     expect(result.total).toBe(10 + 5 + 2 + 5); // 22
   });
 
@@ -257,6 +329,7 @@ describe('PriorityCalculator.calculateUrgency', () => {
     // With 'none' as default for formulas, duration and oldness should be 0
     expect(result.total).toBe(0);
     expect(result.components.project).toBe(0);
+    expect(result.components.deadline).toBe(0);
   });
 
   it('works without project priority', () => {
@@ -274,5 +347,27 @@ describe('PriorityCalculator.calculateUrgency', () => {
 
     expect(result.components.project).toBe(0);
     expect(result.total).toBe(10 + 2 + 5); // 17
+  });
+
+  it('includes deadline priority in total when task has due date', () => {
+    const now = new Date('2024-01-15');
+    const task = createTask({
+      id: 'task-1',
+      tagIds: [],
+      timeEstimate: 2 * 60 * 60 * 1000,
+      created: new Date('2024-01-10').getTime(),
+      dueDate: new Date('2024-01-20').getTime(), // 5 days away
+    });
+    const deadlineConfig = {
+      ...config,
+      deadlineFormula: 'linear',
+      deadlineWeight: 12,
+      tagPriorities: {},
+    };
+
+    const result = PriorityCalculator.calculateUrgency(task, deadlineConfig, [], [], now);
+
+    expect(result.components.deadline).toBeGreaterThan(0);
+    expect(result.total).toBeGreaterThan(result.components.duration + result.components.oldness);
   });
 });
