@@ -16,6 +16,9 @@ export const DEFAULT_CONFIG = {
   oldnessWeight: 1.0,
   deadlineFormula: 'linear', // 'linear', 'aggressive', 'none' - how deadline urgency increases as due date approaches
   deadlineWeight: 12.0, // Weight for deadline urgency (similar to taskcheck's urgency.due.coefficient default)
+  // Dynamic scheduling options (auto-adjust urgency weight when deadlines can't be met)
+  autoAdjustUrgency: true, // If true, reduce urgency weight when tasks can't meet deadlines
+  urgencyWeight: 1.0, // Weight for non-deadline urgency factors (0.0 to 1.0)
   maxDaysAhead: 30,
   autoRunOnStart: false,
   splitPrefix: '', // Prefix for split task names (empty = use original name)
@@ -32,6 +35,9 @@ export const DEFAULT_CONFIG = {
 
 // Milliseconds per day constant for date calculations
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+// Urgency weight reduction step for auto-adjust scheduling
+const URGENCY_WEIGHT_STEP = 0.1;
 
 /**
  * Convert number to Roman numerals
@@ -98,19 +104,87 @@ export function getRemainingHours(task) {
 }
 
 /**
+ * Parse a deadline from task notes
+ * Supports formats like:
+ *   - "Due: 2024-01-20" or "due: 2024-01-20"
+ *   - "Deadline: 2024-01-20" or "deadline: 2024-01-20"
+ *   - "Due: Jan 20, 2024"
+ *   - "Due: 20/01/2024" (DD/MM/YYYY)
+ *   - "Due: 01/20/2024" (MM/DD/YYYY) - ambiguous, treated as MM/DD/YYYY
+ * @param {string} notes - The notes field from a task
+ * @returns {Date|null} The parsed due date or null if not found
+ */
+export function parseDeadlineFromNotes(notes) {
+  if (!notes || typeof notes !== 'string') return null;
+  
+  // Match patterns like "Due: <date>" or "Deadline: <date>"
+  const patterns = [
+    // ISO format: Due: 2024-01-20 or Deadline: 2024-01-20
+    /(?:due|deadline)\s*:\s*(\d{4}-\d{2}-\d{2})/i,
+    // Named month: Due: Jan 20, 2024
+    /(?:due|deadline)\s*:\s*([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/i,
+    // Slash format: Due: 01/20/2024 or 20/01/2024
+    /(?:due|deadline)\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = notes.match(pattern);
+    if (match) {
+      const dateStr = match[1];
+      
+      // Try parsing the date
+      // Handle slash format specially (assume MM/DD/YYYY for US format)
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          const [first, second, year] = parts.map(p => parseInt(p, 10));
+          // Validate the parsed values
+          if (first > 12 && second >= 1 && second <= 12) {
+            // DD/MM/YYYY format (day > 12 indicates it's the day)
+            return new Date(year, second - 1, first);
+          }
+          // MM/DD/YYYY format - validate day is reasonable
+          if (first >= 1 && first <= 12 && second >= 1 && second <= 31) {
+            return new Date(year, first - 1, second);
+          }
+          // Invalid date parts, continue to next pattern
+        }
+      } else {
+        // Standard date parsing for other formats
+        const parsed = new Date(dateStr);
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Get the due date of a task
- * Supports both 'dueDate' and 'dueWithTime' fields from Super Productivity
+ * Priority:
+ *   1. Deadline parsed from notes (allows setting deadline separately from scheduled time)
+ *   2. dueDate field (Super Productivity's all-day due date)
+ *   3. Note: dueWithTime is NOT used here because SP uses it for scheduling, not deadlines
+ * 
  * @returns {Date|null} The due date or null if not set
  */
 export function getTaskDueDate(task) {
-  // Super Productivity uses dueWithTime for tasks with specific due times
-  // and dueDate for all-day due dates (both as timestamps in milliseconds)
-  if (task.dueWithTime) {
-    return new Date(task.dueWithTime);
+  // First check for deadline in notes - this allows users to set deadlines
+  // separately from the scheduled time (which uses dueWithTime in SP)
+  const notesDeadline = parseDeadlineFromNotes(task.notes);
+  if (notesDeadline) {
+    return notesDeadline;
   }
+  
+  // Super Productivity's dueDate is for all-day due dates
+  // Note: We don't use dueWithTime here because AutoPlan uses it for scheduling
   if (task.dueDate) {
     return new Date(task.dueDate);
   }
+  
   return null;
 }
 
@@ -298,13 +372,18 @@ export const PriorityCalculator = {
       task, config.deadlineFormula || 'none', config.deadlineWeight ?? 12.0, now
     );
 
+    // Apply urgencyWeight to non-deadline factors (like taskcheck's weight_urgency)
+    // This allows dynamic scheduling to prioritize deadline-based urgency when needed
+    const urgencyWeight = config.urgencyWeight ?? 1.0;
+    const nonDeadlineUrgency = (tagPriority + projectPriority + durationPriority + oldnessPriority) * urgencyWeight;
+
     return {
-      total: tagPriority + projectPriority + durationPriority + oldnessPriority + deadlinePriority,
+      total: nonDeadlineUrgency + deadlinePriority,
       components: {
-        tag: tagPriority,
-        project: projectPriority,
-        duration: durationPriority,
-        oldness: oldnessPriority,
+        tag: tagPriority * urgencyWeight,
+        project: projectPriority * urgencyWeight,
+        duration: durationPriority * urgencyWeight,
+        oldness: oldnessPriority * urgencyWeight,
         deadline: deadlinePriority
       }
     };
@@ -754,6 +833,75 @@ export const AutoPlanner = {
     }
 
     return deadlineMisses;
+  },
+
+  /**
+   * Schedule with automatic urgency adjustment
+   * If tasks miss their deadlines, reduce the urgency weight and retry
+   * until all deadlines are met or the weight reaches 0.
+   * 
+   * This implements taskcheck's auto-adjust-urgency feature.
+   * 
+   * @param {Array} splits - Task splits to schedule
+   * @param {Object} config - Configuration object
+   * @param {Array} allTags - All available tags
+   * @param {Array} allProjects - All available projects
+   * @param {Date} startTime - When to start scheduling from
+   * @param {Array} fixedTasks - Tasks that should not be rescheduled (optional)
+   * @returns {Object} - { schedule, deadlineMisses, finalUrgencyWeight, adjustmentAttempts }
+   */
+  scheduleWithAutoAdjust(splits, config, allTags, allProjects = [], startTime = new Date(), fixedTasks = []) {
+    const autoAdjust = config.autoAdjustUrgency ?? true;
+    const initialWeight = config.urgencyWeight ?? 1.0;
+    
+    if (!autoAdjust) {
+      // No auto-adjust, just run once
+      const result = this.schedule(splits, config, allTags, allProjects, startTime, fixedTasks);
+      return {
+        ...result,
+        finalUrgencyWeight: initialWeight,
+        adjustmentAttempts: 0,
+      };
+    }
+    
+    let currentWeight = initialWeight;
+    let attempts = 0;
+    let result;
+    
+    // Keep trying with reduced weight until no deadline misses or weight reaches 0
+    while (currentWeight >= 0) {
+      // Create a modified config with current weight
+      const adjustedConfig = {
+        ...config,
+        urgencyWeight: currentWeight,
+      };
+      
+      result = this.schedule(splits, adjustedConfig, allTags, allProjects, startTime, fixedTasks);
+      
+      // If no deadline misses, we're done
+      if (result.deadlineMisses.length === 0) {
+        break;
+      }
+      
+      // Reduce weight by the step amount and try again
+      currentWeight = Math.round((currentWeight - URGENCY_WEIGHT_STEP) * 10) / 10; // Round to avoid floating point issues
+      attempts++;
+      
+      // Safety check - don't go below 0
+      if (currentWeight < 0) {
+        currentWeight = 0;
+        // One final try with weight = 0
+        const finalConfig = { ...config, urgencyWeight: 0 };
+        result = this.schedule(splits, finalConfig, allTags, allProjects, startTime, fixedTasks);
+        break;
+      }
+    }
+    
+    return {
+      ...result,
+      finalUrgencyWeight: currentWeight,
+      adjustmentAttempts: attempts,
+    };
   },
 };
 

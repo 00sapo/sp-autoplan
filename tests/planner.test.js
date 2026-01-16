@@ -725,3 +725,107 @@ describe('AutoPlanner.schedule with deadlines', () => {
     expect(result.deadlineMisses[0].unscheduledSplits).toBeGreaterThan(0);
   });
 });
+
+describe('AutoPlanner.scheduleWithAutoAdjust', () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    tagPriorities: { urgent: 50 },
+    durationFormula: 'none',
+    oldnessFormula: 'none',
+    deadlineFormula: 'linear',
+    deadlineWeight: 12,
+    autoAdjustUrgency: true,
+    urgencyWeight: 1.0,
+    workdayStartHour: 9,
+    workdayHours: 8,
+    skipDays: [],
+  };
+
+  it('returns schedule without adjustment when no deadline misses', () => {
+    const task = createTask({
+      id: 'task-1',
+      timeEstimate: 2 * 60 * 60 * 1000,
+      notes: 'Due: 2024-01-25', // Plenty of time
+    });
+
+    const splits = TaskSplitter.splitTask(task, 120, config);
+    const startTime = new Date('2024-01-15T09:00:00');
+    const result = AutoPlanner.scheduleWithAutoAdjust(splits, config, [], [], startTime);
+
+    expect(result.schedule.length).toBe(1);
+    expect(result.deadlineMisses.length).toBe(0);
+    expect(result.finalUrgencyWeight).toBe(1.0);
+    expect(result.adjustmentAttempts).toBe(0);
+  });
+
+  it('adjusts urgency weight when deadline cannot be met', () => {
+    // Create two tasks: one urgent with tag boost, one with tight deadline
+    // With full urgency weight, the urgent task gets scheduled first,
+    // causing the deadline task to miss its deadline.
+    // With reduced urgency weight, deadline priority takes over.
+    const tasks = [
+      createTask({
+        id: 'urgent-task',
+        title: 'Urgent',
+        timeEstimate: 8 * 60 * 60 * 1000, // 8 hours (full day)
+        tagIds: ['tag-urgent'],
+      }),
+      createTask({
+        id: 'deadline-task',
+        title: 'Deadline',
+        timeEstimate: 2 * 60 * 60 * 1000, // 2 hours
+        notes: 'Due: 2024-01-15', // Due today!
+      }),
+    ];
+
+    const allTags = [{ id: 'tag-urgent', name: 'urgent' }];
+
+    let allSplits = [];
+    for (const task of tasks) {
+      allSplits.push(...TaskSplitter.splitTask(task, 120, config));
+    }
+
+    const startTime = new Date('2024-01-15T09:00:00');
+    const result = AutoPlanner.scheduleWithAutoAdjust(allSplits, config, allTags, [], startTime);
+
+    // Auto-adjust should have kicked in to prioritize the deadline task
+    expect(result.finalUrgencyWeight).toBeLessThan(1.0);
+    expect(result.adjustmentAttempts).toBeGreaterThan(0);
+  });
+
+  it('does not adjust when autoAdjustUrgency is false', () => {
+    const task = createTask({
+      id: 'task-1',
+      timeEstimate: 20 * 60 * 60 * 1000, // 20 hours
+      notes: 'Due: 2024-01-16', // Due tomorrow - will miss
+    });
+
+    const noAdjustConfig = { ...config, autoAdjustUrgency: false, maxDaysAhead: 1 };
+    const splits = TaskSplitter.splitTask(task, 120, noAdjustConfig);
+    const startTime = new Date('2024-01-15T09:00:00');
+    const result = AutoPlanner.scheduleWithAutoAdjust(splits, noAdjustConfig, [], [], startTime);
+
+    // Should not attempt adjustment
+    expect(result.adjustmentAttempts).toBe(0);
+    expect(result.finalUrgencyWeight).toBe(1.0);
+    // Should still have deadline miss
+    expect(result.deadlineMisses.length).toBeGreaterThan(0);
+  });
+
+  it('stops adjusting when weight reaches 0', () => {
+    // Task that cannot be scheduled before deadline no matter what
+    const task = createTask({
+      id: 'task-1',
+      timeEstimate: 100 * 60 * 60 * 1000, // 100 hours = 12.5 days
+      notes: 'Due: 2024-01-16', // Due tomorrow
+    });
+
+    const maxDayConfig = { ...config, maxDaysAhead: 2 };
+    const splits = TaskSplitter.splitTask(task, 120, maxDayConfig);
+    const startTime = new Date('2024-01-15T09:00:00');
+    const result = AutoPlanner.scheduleWithAutoAdjust(splits, maxDayConfig, [], [], startTime);
+
+    // Should have tried all adjustments down to 0
+    expect(result.finalUrgencyWeight).toBe(0);
+  });
+});

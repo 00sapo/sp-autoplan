@@ -266,9 +266,9 @@ describe('PriorityCalculator.calculateDeadlinePriority', () => {
     expect(result).toBeLessThan(8); // Less than near-due
   });
 
-  it('supports dueWithTime field', () => {
+  it('parses deadline from notes field', () => {
     const now = new Date('2024-01-15');
-    const task = createTask({ dueWithTime: new Date('2024-01-20').getTime() });
+    const task = createTask({ notes: 'Due: 2024-01-20' });
     const result = PriorityCalculator.calculateDeadlinePriority(task, 'linear', 12, now);
     expect(result).toBeGreaterThan(0);
   });

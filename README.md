@@ -49,11 +49,28 @@ self-explained.
 
 Use the **Schedule** tab to preview what will be scheduled before applying changes.
 
+## Setting Deadlines
+
+Since Super Productivity uses the same field for both scheduled time and due dates, AutoPlan provides an alternative way to set deadlines: **add a deadline in your task notes**.
+
+Add one of these formats to your task notes:
+- `Due: 2024-01-20`
+- `Deadline: 2024-01-20`
+- `Due: Jan 20, 2024`
+- `Due: 01/20/2024` (MM/DD/YYYY)
+- `due: 20/01/2024` (DD/MM/YYYY if day > 12)
+
+AutoPlan will parse these deadlines and prioritize tasks accordingly. Tasks with approaching deadlines will get higher urgency, and AutoPlan will warn you if a task cannot be completed before its deadline.
+
+### Dynamic Scheduling
+
+AutoPlan can automatically adjust scheduling priorities when deadlines can't be met. When enabled (default), if a task would miss its deadline, AutoPlan reduces the weight of non-deadline factors (tags, projects, duration, age) and re-runs the scheduler, prioritizing deadline urgency until all deadlines are met or the weight reaches zero.
+
+This is similar to taskcheck's `--auto-adjust-urgency` feature.
+
 ## Important Caveats
 
-**Super Productivity does not distinguish between due date and planned date.** Currently, there's no workaround for this.
-
-**Super Productivity has no priority field.** AutoPlan rebuilds urgency using tags, projects, task elderliness, and estimated completion time. Use the dry-run preview to verify the schedule matches your expectations.
+**Super Productivity has no priority field.** AutoPlan rebuilds urgency using tags, projects, task elderliness, deadline, and estimated completion time. Use the dry-run preview to verify the schedule matches your expectations.
 
 **Super Productivity doesn't support scheduling tasks only partially.** AutoPlan splits large tasks into `Task <I>`, `Task <II>`, etc. This means:
 - Task count changes each run
