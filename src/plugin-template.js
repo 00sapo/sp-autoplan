@@ -66,6 +66,7 @@ AutoPlanner.applySchedule = async function(schedule, originalTasks) {
           timeEstimate: item.split.estimatedMs,
           tagIds: item.split.tagIds,
           projectId: item.split.projectId,
+          parentId: item.split.parentId,
           notes: TaskMerger.generateSplitNotes(
             item.split.splitIndex,
             item.split.totalSplits,
