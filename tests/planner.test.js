@@ -891,9 +891,9 @@ describe('AutoPlanner.schedule with dynamic splitting', () => {
     const day1 = result.schedule.filter(s => s.startTime.getDate() === 15);
     const day1Minutes = day1.reduce((sum, s) => sum + (s.endTime - s.startTime) / 60000, 0);
     
-    // Day 1 should use all available 3 hours
-    // First 2h block fits completely, then we have 1h left which is less than min block size
-    // So day 1 gets 2h, and remaining blocks go to day 2
+    // First 2h block fits completely in day 1. After scheduling it, 1 hour remains.
+    // The next block (2h) doesn't fit, and remaining time (1h) < min block size (2h),
+    // so no dynamic split happens - we move to day 2.
     expect(day1Minutes).toBe(120); // 2 hours (one full block)
     
     // Day 2 should have the remaining time
