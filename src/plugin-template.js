@@ -315,9 +315,12 @@ async function runAutoplan(dryRun = false) {
     console.log(`[AutoPlan] Skipped ${skippedParents.length} parent tasks`);
 
     // Run scheduling algorithm
-    const schedule = AutoPlanner.schedule(splits, config, allTags, allProjects, new Date(), fixedTasks);
+    const { schedule, deadlineMisses } = AutoPlanner.schedule(splits, config, allTags, allProjects, new Date(), fixedTasks);
 
     console.log(`[AutoPlan] Generated schedule with ${schedule.length} entries`);
+    if (deadlineMisses.length > 0) {
+      console.log(`[AutoPlan] Warning: ${deadlineMisses.length} tasks may miss their deadlines`);
+    }
 
     // Show preview
     let message = `AutoPlan: ${schedule.length} blocks scheduled`;
