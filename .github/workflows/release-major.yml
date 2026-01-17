@@ -30,19 +30,13 @@ jobs:
           echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $CURRENT_VERSION"
       
-      - name: Calculate new version
+      - name: Bump major version
         id: new_version
         run: |
-          CURRENT="${{ steps.current_version.outputs.version }}"
-          MAJOR=$(echo $CURRENT | cut -d. -f1)
-          NEW_MAJOR=$((MAJOR + 1))
-          NEW_VERSION="${NEW_MAJOR}.0.0"
+          NEW_VERSION=$(npm version major --no-git-tag-version)
+          NEW_VERSION=${NEW_VERSION#v}
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "New version: $NEW_VERSION"
-      
-      - name: Update package.json version
-        run: |
-          npm version ${{ steps.new_version.outputs.version }} --no-git-tag-version
       
       - name: Build plugin zip
         run: npm run build:zip
@@ -51,7 +45,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
+          git add package.json
+          if [ -f package-lock.json ]; then git add package-lock.json; fi
           git commit -m "chore: bump version to ${{ steps.new_version.outputs.version }}"
           git push
       
