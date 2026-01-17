@@ -79,6 +79,7 @@ function toRoman(num) {
 
 /**
  * Calculate hours between two dates
+ * @description Utility function exported for external use and testing
  */
 function hoursBetween(date1, date2) {
   return Math.abs(date2 - date1) / (1000 * 60 * 60);
@@ -696,8 +697,22 @@ const AutoPlanner = {
         };
       });
 
-      // Sort by urgency (highest first)
-      splitsWithUrgency.sort((a, b) => b.urgency - a.urgency);
+      // Sort by urgency (highest first), with secondary sort by creation date (oldest first)
+      // and tertiary sort by task ID for full determinism
+      splitsWithUrgency.sort((a, b) => {
+        // Primary: higher urgency first
+        if (b.urgency !== a.urgency) {
+          return b.urgency - a.urgency;
+        }
+        // Secondary: older tasks first (lower created timestamp)
+        const aCreated = a.split.originalTask?.created || 0;
+        const bCreated = b.split.originalTask?.created || 0;
+        if (aCreated !== bCreated) {
+          return aCreated - bCreated;
+        }
+        // Tertiary: alphabetical by task ID for full determinism
+        return (a.split.originalTaskId || '').localeCompare(b.split.originalTaskId || '');
+      });
 
       // Get the most urgent split
       const mostUrgent = splitsWithUrgency[0];
@@ -1174,6 +1189,7 @@ function getSchedulingFields(startTime) {
  */
 AutoPlanner.applySchedule = async function(schedule, originalTasks) {
   const createdTasks = [];
+  const errors = [];
   const taskGroups = new Map(); // Group splits by original task
 
   // Group scheduled splits by original task
@@ -1192,84 +1208,100 @@ AutoPlanner.applySchedule = async function(schedule, originalTasks) {
     // Sort items by split index
     items.sort((a, b) => a.split.splitIndex - b.split.splitIndex);
 
-    // If only one block, just update the original task
-    if (items.length === 1) {
-      // Update with scheduled time using appropriate field
-      const schedulingFields = getSchedulingFields(items[0].startTime);
-      await PluginAPI.updateTask(originalId, schedulingFields);
-      createdTasks.push({
-        type: 'updated',
-        taskId: originalId,
-        scheduledAt: items[0].startTime,
-      });
-    } else {
-      // Split task into multiple blocks
-      // IMPORTANT: Preserve the original task as the first split to maintain task ID
-      const splitTaskIds = [];
-      
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const schedulingFields = getSchedulingFields(item.startTime);
+    try {
+      // If only one block, just update the original task
+      if (items.length === 1) {
+        // Update with scheduled time using appropriate field
+        const schedulingFields = getSchedulingFields(items[0].startTime);
+        await PluginAPI.updateTask(originalId, schedulingFields);
+        createdTasks.push({
+          type: 'updated',
+          taskId: originalId,
+          scheduledAt: items[0].startTime,
+        });
+      } else {
+        // Split task into multiple blocks
+        // IMPORTANT: Preserve the original task as the first split to maintain task ID
+        const splitTaskIds = [];
         
-        if (i === 0) {
-          // First split: UPDATE the original task instead of creating a new one
-          // This preserves the original task ID and keeps the timeSpent
-          await PluginAPI.updateTask(originalId, {
-            title: item.split.title,
-            timeEstimate: item.split.estimatedMs,
-            // timeSpent is preserved automatically since we're updating, not creating
-            notes: TaskMerger.generateSplitNotes(
-              item.split.splitIndex,
-              item.split.totalSplits,
-              originalTask.title,
-              originalId
-            ),
-            ...schedulingFields,
-          });
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const schedulingFields = getSchedulingFields(item.startTime);
+          
+          try {
+            if (i === 0) {
+              // First split: UPDATE the original task instead of creating a new one
+              // This preserves the original task ID and keeps the timeSpent
+              await PluginAPI.updateTask(originalId, {
+                title: item.split.title,
+                timeEstimate: item.split.estimatedMs,
+                // timeSpent is preserved automatically since we're updating, not creating
+                notes: TaskMerger.generateSplitNotes(
+                  item.split.splitIndex,
+                  item.split.totalSplits,
+                  originalTask.title,
+                  originalId
+                ),
+                ...schedulingFields,
+              });
 
-          splitTaskIds.push(originalId);
-          createdTasks.push({
-            type: 'updated',
-            taskId: originalId,
-            originalTaskId: originalId,
-            splitIndex: item.split.splitIndex,
-            scheduledAt: item.startTime,
-          });
-        } else {
-          // Subsequent splits: Create new tasks with no time tracking data
-          const newTaskId = await PluginAPI.addTask({
-            title: item.split.title,
-            timeEstimate: item.split.estimatedMs,
-            timeSpent: 0, // New splits start with no time spent
-            timeSpentOnDay: {}, // New splits start with empty time-on-day tracking
-            tagIds: item.split.tagIds,
-            projectId: item.split.projectId,
-            parentId: item.split.parentId,
-            notes: TaskMerger.generateSplitNotes(
-              item.split.splitIndex,
-              item.split.totalSplits,
-              originalTask.title,
-              originalId
-            ),
-          });
+              splitTaskIds.push(originalId);
+              createdTasks.push({
+                type: 'updated',
+                taskId: originalId,
+                originalTaskId: originalId,
+                splitIndex: item.split.splitIndex,
+                scheduledAt: item.startTime,
+              });
+            } else {
+              // Subsequent splits: Create new tasks with no time tracking data
+              const newTaskId = await PluginAPI.addTask({
+                title: item.split.title,
+                timeEstimate: item.split.estimatedMs,
+                timeSpent: 0, // New splits start with no time spent
+                timeSpentOnDay: {}, // New splits start with empty time-on-day tracking
+                tagIds: item.split.tagIds,
+                projectId: item.split.projectId,
+                parentId: item.split.parentId,
+                notes: TaskMerger.generateSplitNotes(
+                  item.split.splitIndex,
+                  item.split.totalSplits,
+                  originalTask.title,
+                  originalId
+                ),
+              });
 
-          // Set the scheduled time via updateTask using appropriate field
-          await PluginAPI.updateTask(newTaskId, schedulingFields);
+              // Set the scheduled time via updateTask using appropriate field
+              await PluginAPI.updateTask(newTaskId, schedulingFields);
 
-          splitTaskIds.push(newTaskId);
-          createdTasks.push({
-            type: 'created',
-            taskId: newTaskId,
-            originalTaskId: originalId,
-            splitIndex: item.split.splitIndex,
-            scheduledAt: item.startTime,
-          });
+              splitTaskIds.push(newTaskId);
+              createdTasks.push({
+                type: 'created',
+                taskId: newTaskId,
+                originalTaskId: originalId,
+                splitIndex: item.split.splitIndex,
+                scheduledAt: item.startTime,
+              });
+            }
+          } catch (splitError) {
+            console.warn(`[AutoPlan] Failed to create/update split ${i} for task ${originalId}:`, splitError);
+            errors.push({ taskId: originalId, splitIndex: i, error: splitError.message });
+            // Continue with other splits
+          }
         }
       }
+    } catch (taskError) {
+      console.warn(`[AutoPlan] Failed to process task ${originalId}:`, taskError);
+      errors.push({ taskId: originalId, error: taskError.message });
+      // Continue with other tasks
     }
   }
 
-  return createdTasks;
+  if (errors.length > 0) {
+    console.warn(`[AutoPlan] Completed with ${errors.length} errors:`, errors);
+  }
+
+  return { createdTasks, errors };
 };
 
 /**
@@ -1518,10 +1550,18 @@ async function runAutoplan(dryRun = false) {
     // Apply the schedule
     const result = await AutoPlanner.applySchedule(schedule, eligibleTasks);
 
-    PluginAPI.showSnack({
-      msg: message,
-      type: 'SUCCESS',
-    });
+    // Check for errors and adjust message accordingly
+    if (result.errors && result.errors.length > 0) {
+      PluginAPI.showSnack({
+        msg: `${message} (${result.errors.length} errors)`,
+        type: 'WARNING',
+      });
+    } else {
+      PluginAPI.showSnack({
+        msg: message,
+        type: 'SUCCESS',
+      });
+    }
 
     return { schedule, applied: true, result };
 

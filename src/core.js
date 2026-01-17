@@ -63,6 +63,7 @@ export function toRoman(num) {
 
 /**
  * Calculate hours between two dates
+ * @description Utility function exported for external use and testing
  */
 export function hoursBetween(date1, date2) {
   return Math.abs(date2 - date1) / (1000 * 60 * 60);
@@ -680,8 +681,22 @@ export const AutoPlanner = {
         };
       });
 
-      // Sort by urgency (highest first)
-      splitsWithUrgency.sort((a, b) => b.urgency - a.urgency);
+      // Sort by urgency (highest first), with secondary sort by creation date (oldest first)
+      // and tertiary sort by task ID for full determinism
+      splitsWithUrgency.sort((a, b) => {
+        // Primary: higher urgency first
+        if (b.urgency !== a.urgency) {
+          return b.urgency - a.urgency;
+        }
+        // Secondary: older tasks first (lower created timestamp)
+        const aCreated = a.split.originalTask?.created || 0;
+        const bCreated = b.split.originalTask?.created || 0;
+        if (aCreated !== bCreated) {
+          return aCreated - bCreated;
+        }
+        // Tertiary: alphabetical by task ID for full determinism
+        return (a.split.originalTaskId || '').localeCompare(b.split.originalTaskId || '');
+      });
 
       // Get the most urgent split
       const mostUrgent = splitsWithUrgency[0];
