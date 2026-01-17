@@ -1539,13 +1539,17 @@
     function parseSplitInfo(task) {
       if (!task.notes) return null;
       
-      const match = task.notes.match(/Split (\d+)\/(\d+) of "(.+)"\n\nOriginal Task ID: (.+)/);
-      if (match) {
+      // Look for the AutoPlan split marker with more flexible pattern
+      // Handle potential special characters in title
+      const splitMatch = task.notes.match(/Split (\d+)\/(\d+) of "((?:[^"\\]|\\.)*)"/);
+      const idMatch = task.notes.match(/Original Task ID: ([^\n\s]+)/);
+      
+      if (splitMatch && idMatch) {
         return {
-          splitIndex: parseInt(match[1]) - 1,
-          totalSplits: parseInt(match[2]),
-          originalTitle: match[3],
-          originalTaskId: match[4].trim(),
+          splitIndex: parseInt(splitMatch[1]) - 1,
+          totalSplits: parseInt(splitMatch[2]),
+          originalTitle: splitMatch[3].replace(/\\"/g, '"'), // Unescape quotes
+          originalTaskId: idMatch[1].trim(),
         };
       }
       return null;
