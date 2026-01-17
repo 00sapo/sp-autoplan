@@ -278,6 +278,11 @@
       display: block;
     }
 
+    .status.warning {
+      background: rgba(255, 152, 0, 0.1);
+      border-color: #ff9800;
+    }
+
     /* Loading */
     .loading {
       text-align: center;
@@ -875,7 +880,23 @@
         // Try to communicate with plugin.js
         if (window.parent && window.parent.AutoPlanAPI) {
           const result = await window.parent.AutoPlanAPI.runAutoplan(false);
-          showStatus(`AutoPlan complete: ${result.schedule?.length || 0} blocks scheduled`, 'success');
+          const schedule = result.schedule || [];
+          
+          // Check for priority vs schedule order discrepancies (deadline-based)
+          const priorityComparison = await calculatePriorityComparison(schedule);
+          
+          if (priorityComparison.warnings.length > 0) {
+            const deadlineTasks = priorityComparison.warnings
+              .map(w => `${w.title} (${w.deadline.toLocaleDateString()})`)
+              .join(', ');
+            showStatus(
+              `AutoPlan complete: ${schedule.length} blocks scheduled. ` +
+              `Deadline priority applied: ${deadlineTasks}`,
+              'warning'
+            );
+          } else {
+            showStatus(`AutoPlan complete: ${schedule.length} blocks scheduled`, 'success');
+          }
         } else {
           // AutoPlanAPI not available
           showStatus('AutoPlanAPI not available. Use the header button or Ctrl+Shift+A to run.', 'info');
@@ -1292,6 +1313,9 @@
             return;
           }
 
+          // Calculate initial priorities for comparison
+          const priorityComparison = await calculatePriorityComparison(schedule);
+
           // Group by date for better display
           const byDate = new Map();
           for (const item of schedule) {
@@ -1302,7 +1326,22 @@
             byDate.get(dateStr).push(item);
           }
 
-          let html = `<p style="margin-bottom: 12px; font-weight: 500;">${schedule.length} blocks scheduled across ${byDate.size} days:</p>`;
+          let html = '';
+          
+          // Show warning if schedule order differs significantly from priority order
+          if (priorityComparison.warnings.length > 0) {
+            html += `
+              <div class="tip-box" style="margin-bottom: 16px; background: rgba(255, 152, 0, 0.1); border-left-color: #ff9800;">
+                <strong>Deadline Priority Notice</strong>
+                <p style="margin-top: 8px;">Some tasks are scheduled earlier than their base priority would suggest because they have approaching deadlines:</p>
+                <ul style="margin: 8px 0 0 16px; padding: 0; font-size: 0.9em;">
+                  ${priorityComparison.warnings.map(w => `<li><strong>${escapeHtml(w.title)}</strong>: deadline ${w.deadline ? w.deadline.toLocaleDateString() : 'unknown'}</li>`).join('')}
+                </ul>
+              </div>
+            `;
+          }
+          
+          html += `<p style="margin-bottom: 12px; font-weight: 500;">${schedule.length} blocks scheduled across ${byDate.size} days:</p>`;
           
           for (const [date, items] of byDate) {
             html += `<div style="margin-top: 12px; margin-bottom: 8px; font-weight: 600; opacity: 0.8;">${date}</div>`;
@@ -1310,8 +1349,13 @@
               const startTime = item.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               const endTime = item.endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               const hours = (item.split.estimatedHours).toFixed(1);
+              
+              // Check if this task has a warning
+              const warning = priorityComparison.warnings.find(w => w.taskId === item.split.originalTaskId);
+              const warningStyle = warning ? 'border-left: 3px solid #ff9800; padding-left: 8px;' : '';
+              
               html += `
-                <div class="schedule-item">
+                <div class="schedule-item" style="${warningStyle}">
                   <div class="schedule-title">
                     <span style="opacity: 0.6; font-size: 0.9em;">${startTime}-${endTime}</span>
                     ${escapeHtml(item.split.title)}
@@ -1713,6 +1757,123 @@
       if (num === 0) return '0';
       const rounded = Math.round(num * 10) / 10;
       return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(1);
+    }
+
+    // Compare initial priority order with scheduled order to detect discrepancies
+    async function calculatePriorityComparison(schedule) {
+      const warnings = [];
+      
+      try {
+        // Get current config and data
+        const configData = await PluginAPI.loadSyncedData();
+        const config = configData ? JSON.parse(configData) : getDefaultConfig();
+        const tasks = await PluginAPI.getTasks();
+        const allTags = await PluginAPI.getAllTags();
+        const allProjects = await PluginAPI.getAllProjects();
+        
+        // Find parent task IDs (tasks that have subtasks)
+        const parentIds = new Set();
+        for (const task of tasks) {
+          if (task.parentId) {
+            parentIds.add(task.parentId);
+          }
+        }
+        
+        // Build task map for quick lookup
+        const taskMap = new Map();
+        for (const task of tasks) {
+          taskMap.set(task.id, task);
+        }
+        
+        // Get eligible tasks (same filter as Priorities tab)
+        const eligibleTasks = tasks.filter(t => 
+          !t.isDone && 
+          t.timeEstimate && 
+          t.timeEstimate > 0 &&
+          !parentIds.has(t.id)
+        );
+        
+        // Calculate initial priority for each task (excluding deadline component)
+        const now = new Date();
+        const tasksWithPriority = eligibleTasks.map(task => {
+          const urgency = calculateTaskUrgency(task, config, allTags, allProjects, tasks, now);
+          // Calculate priority WITHOUT deadline to see base priority
+          const basePriority = urgency.total - (urgency.components.deadline || 0);
+          const deadline = getTaskDueDate(task);
+          return {
+            taskId: task.id,
+            title: task.title,
+            urgency: urgency.total,
+            basePriority,
+            deadlinePriority: urgency.components.deadline || 0,
+            deadline
+          };
+        });
+        
+        // Sort by BASE priority (without deadline) to get base ranking
+        const tasksForBaseRanking = [...tasksWithPriority];
+        tasksForBaseRanking.sort((a, b) => b.basePriority - a.basePriority);
+        
+        // Create base priority rank map (1-based)
+        const basePriorityRankMap = new Map();
+        tasksForBaseRanking.forEach((item, index) => {
+          basePriorityRankMap.set(item.taskId, index + 1);
+        });
+        
+        // Get first occurrence of each original task in the schedule (schedule order)
+        const scheduleOrder = [];
+        const seenTaskIds = new Set();
+        for (const item of schedule) {
+          const taskId = item.split.originalTaskId;
+          if (!seenTaskIds.has(taskId)) {
+            seenTaskIds.add(taskId);
+            scheduleOrder.push({
+              taskId,
+              title: item.split.originalTask?.title || item.split.title
+            });
+          }
+        }
+        
+        // Create schedule rank map (1-based)
+        const scheduleRankMap = new Map();
+        scheduleOrder.forEach((item, index) => {
+          scheduleRankMap.set(item.taskId, index + 1);
+        });
+        
+        // Find tasks that are scheduled earlier than their base priority suggests
+        // Only include tasks that have a deadline (since that's what causes the boost)
+        for (const item of scheduleOrder) {
+          const basePriorityRank = basePriorityRankMap.get(item.taskId);
+          const scheduleRank = scheduleRankMap.get(item.taskId);
+          const taskInfo = tasksWithPriority.find(t => t.taskId === item.taskId);
+          
+          if (basePriorityRank && scheduleRank && taskInfo) {
+            // Task is scheduled earlier if scheduleRank < basePriorityRank
+            // Only warn if the task has a deadline AND is scheduled significantly earlier
+            const rankDifference = basePriorityRank - scheduleRank;
+            if (rankDifference >= 2 && taskInfo.deadline) {
+              warnings.push({
+                taskId: item.taskId,
+                title: item.title,
+                priorityRank: basePriorityRank,
+                scheduleRank,
+                difference: rankDifference,
+                deadline: taskInfo.deadline
+              });
+            }
+          }
+        }
+        
+        // Sort warnings by how much earlier they were scheduled
+        warnings.sort((a, b) => b.difference - a.difference);
+        
+        // Limit to top 5 warnings to avoid clutter
+        return { warnings: warnings.slice(0, 5) };
+        
+      } catch (e) {
+        console.error('Failed to calculate priority comparison:', e);
+        return { warnings: [] };
+      }
     }
 
     // Calculate task urgency (mirrors PriorityCalculator.calculateUrgency from core.js)
