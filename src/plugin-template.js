@@ -210,12 +210,14 @@ TaskMerger.mergeSplits = async function(taskId, silent = false) {
   }
 
   // Update the merged task with combined time tracking data
+  // Clean any AutoPlan notes from the original task so it can be rescheduled
+  const cleanedNotes = this.cleanAutoplanNotes(mergedTask.notes);
   await PluginAPI.updateTask(mergedTask.id, {
     title: mergeData.title,
     timeEstimate: mergeData.totalTimeEstimate,
     timeSpent: mergeData.totalTimeSpent,
     timeSpentOnDay: mergeData.totalTimeSpentOnDay,
-    notes: `[AutoPlan] Merged from ${mergeData.mergedCount} split tasks.\n\nOriginal Task ID: ${originalTaskId}`,
+    notes: cleanedNotes,
   });
 
   // Delete the other incomplete splits
@@ -228,7 +230,7 @@ TaskMerger.mergeSplits = async function(taskId, silent = false) {
       try {
         await PluginAPI.updateTask(task.id, {
           isDone: true,
-          notes: `${task.notes || ''}\n\n[AutoPlan] Merged into task: ${mergedTask.id}`,
+          notes: this.cleanAutoplanNotes(task.notes),
         });
       } catch (e2) {
         console.warn('[AutoPlan] Could not mark task as done:', e2);

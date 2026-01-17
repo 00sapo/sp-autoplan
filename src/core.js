@@ -1104,11 +1104,38 @@ export const TaskMerger = {
   },
 
   /**
+   * Clean AutoPlan markers from task notes
+   * Removes lines containing [AutoPlan] and related metadata like "Original Task ID:"
+   * Also removes "Split X/Y of" lines
+   * @param {string} notes - The original notes
+   * @returns {string} Cleaned notes with AutoPlan markers removed
+   */
+  cleanAutoplanNotes(notes) {
+    if (!notes) return '';
+    
+    // Split into lines and filter out AutoPlan-related lines
+    const lines = notes.split('\n');
+    const cleanedLines = lines.filter(line => {
+      const trimmed = line.trim();
+      // Remove lines with [AutoPlan] marker
+      if (trimmed.includes('[AutoPlan]')) return false;
+      // Remove "Original Task ID:" lines
+      if (trimmed.startsWith('Original Task ID:')) return false;
+      // Remove "Split X/Y of" lines (the split task markers)
+      if (/^Split \d+\/\d+ of "/.test(trimmed)) return false;
+      return true;
+    });
+    
+    // Join and trim excess whitespace
+    return cleanedLines.join('\n').trim();
+  },
+
+  /**
    * Generate the notes content for a split task
    */
   generateSplitNotes(splitIndex, totalSplits, originalTitle, originalTaskId) {
     const escapedTitle = this.escapeTitle(originalTitle);
-    return `Split ${splitIndex + 1}/${totalSplits} of "${escapedTitle}"\n\nOriginal Task ID: ${originalTaskId}`;
+    return `[AutoPlan] Split ${splitIndex + 1}/${totalSplits} of "${escapedTitle}"\n\n[AutoPlan] Original Task ID: ${originalTaskId}`;
   },
 
   /**

@@ -44,15 +44,54 @@ describe('TaskMerger.escapeTitle', () => {
   });
 });
 
+describe('TaskMerger.cleanAutoplanNotes', () => {
+  it('removes [AutoPlan] lines from notes', () => {
+    const notes = '[AutoPlan] Merged from 3 split tasks.\n\nOriginal Task ID: abc123';
+    const cleaned = TaskMerger.cleanAutoplanNotes(notes);
+    expect(cleaned).toBe('');
+  });
+
+  it('removes Split X/Y lines from notes', () => {
+    const notes = 'Split 1/3 of "My Task"\n\nOriginal Task ID: abc123';
+    const cleaned = TaskMerger.cleanAutoplanNotes(notes);
+    expect(cleaned).toBe('');
+  });
+
+  it('preserves user notes while removing AutoPlan markers', () => {
+    const notes = 'User note here\n\n[AutoPlan] Merged from 2 split tasks.\n\nOriginal Task ID: abc123\n\nAnother user note';
+    const cleaned = TaskMerger.cleanAutoplanNotes(notes);
+    expect(cleaned).toBe('User note here\n\n\n\nAnother user note');
+  });
+
+  it('handles empty notes', () => {
+    expect(TaskMerger.cleanAutoplanNotes('')).toBe('');
+    expect(TaskMerger.cleanAutoplanNotes(null)).toBe('');
+    expect(TaskMerger.cleanAutoplanNotes(undefined)).toBe('');
+  });
+
+  it('handles notes without AutoPlan markers', () => {
+    const notes = 'This is a normal note\nWith multiple lines';
+    const cleaned = TaskMerger.cleanAutoplanNotes(notes);
+    expect(cleaned).toBe('This is a normal note\nWith multiple lines');
+  });
+
+  it('removes multiple AutoPlan markers', () => {
+    const notes = '[AutoPlan] First marker\nSplit 2/4 of "Task"\nOriginal Task ID: xyz\n[AutoPlan] Second marker';
+    const cleaned = TaskMerger.cleanAutoplanNotes(notes);
+    expect(cleaned).toBe('');
+  });
+});
+
 describe('TaskMerger.generateSplitNotes', () => {
-  it('generates correctly formatted notes', () => {
+  it('generates correctly formatted notes with AutoPlan markers', () => {
     const notes = TaskMerger.generateSplitNotes(0, 3, 'My Task', 'original-123');
-    expect(notes).toBe('Split 1/3 of "My Task"\n\nOriginal Task ID: original-123');
+    expect(notes).toBe('[AutoPlan] Split 1/3 of "My Task"\n\n[AutoPlan] Original Task ID: original-123');
   });
 
   it('escapes special characters in title', () => {
     const notes = TaskMerger.generateSplitNotes(1, 2, 'Task "with quotes"', 'orig-1');
     expect(notes).toContain('Task \\"with quotes\\"');
+    expect(notes).toContain('[AutoPlan]');
   });
 });
 
