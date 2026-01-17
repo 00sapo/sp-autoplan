@@ -47,7 +47,35 @@ self-explained.
 
 **Do Not Reschedule**: Tag tasks with a "fixed" tag to keep them scheduled (meetings, etc.)
 
+**Auto-Tag Calendar Imports**: Automatically detect and tag likely calendar imports with the "fixed" tag (see below)
+
 Use the **Schedule** tab to preview what will be scheduled before applying changes.
+
+## Calendar Integration
+
+### Manual Tagging (Recommended)
+
+Import calendar events as tasks with a "fixed" tag to protect them from AutoPlan. This ensures meetings and calendar events remain at their scheduled times.
+
+### Automatic Detection (Experimental)
+
+AutoPlan can automatically detect tasks that look like calendar imports and tag them with the "fixed" tag. Enable this in Settings > Do Not Reschedule:
+
+1. Set your "fixed" tag (e.g., "meeting", "calendar", or "fixed")
+2. Enable "Auto-tag calendar imports"
+3. Adjust detection window if needed (default: 5 minutes)
+
+**How it works**: AutoPlan uses heuristics to identify calendar imports:
+- Task was created recently (within detection window)
+- Task has a scheduled time set
+- Task has no time estimate (or minimal estimate for recurring events)
+- Task has repeat configuration (recurring events)
+
+**Limitations**: Since Super Productivity doesn't expose calendar origin metadata, detection is heuristic-based and may occasionally:
+- **Miss some imports**: One-time calendar events that have work estimates
+- **Tag manual tasks**: Tasks you create manually that match the pattern
+
+For best reliability, manually tag important calendar events.
 
 ## Setting Deadlines
 
@@ -77,7 +105,7 @@ This is similar to taskcheck's `--auto-adjust-urgency` feature.
 - Could conflict with other plugins that manipulate tasks
 - Use the Merge tab to manually consolidate if needed
 
-**Super Conductivity still has primitive calendar integration.** Import calendar events as tasks with a "fixed" tag to protect them from AutoPlan.
+**Super Productivity has limited calendar integration.** AutoPlan provides automatic detection to tag calendar imports with a "fixed" tag, but it's heuristic-based since Super Productivity doesn't expose calendar origin metadata. For critical calendar events, manually tag them with your "fixed" tag for guaranteed protection.
 
 **Super Productivity Plugin API are limited.** Especially, they don't expose settings that would be
 useful for improving AutoPlan (working hours, weekdays, boards). This leads to replicate the working

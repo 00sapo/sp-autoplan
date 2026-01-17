@@ -27,6 +27,9 @@ export const DEFAULT_CONFIG = {
   workdayHours: 8,
   skipDays: [0, 6], // Days of week to skip (0 = Sunday, 6 = Saturday)
   doNotRescheduleTagId: null, // Tag ID for tasks that should not be rescheduled
+  // Auto-tagging calendar imports
+  autoTagCalendarImports: false, // If true, automatically tag likely calendar imports with the fixed tag
+  calendarDetectionWindowMinutes: 5, // Time window to consider a task as "just created" (for calendar import detection)
 };
 
 // ============================================================================
@@ -224,6 +227,47 @@ export function hasTag(task, tagId) {
  */
 export function isFixedTask(task, config) {
   return hasTag(task, config?.doNotRescheduleTagId);
+}
+
+/**
+ * Check if a task looks like it was imported from a calendar
+ * Uses heuristics since Super Productivity doesn't expose calendar origin metadata
+ * 
+ * @param {Object} task - The task to check
+ * @param {Object} config - Configuration object with calendarDetectionWindowMinutes
+ * @param {Date} now - Current time for checking creation time
+ * @returns {boolean} True if task appears to be a calendar import
+ */
+export function looksLikeCalendarImport(task, config, now = new Date()) {
+  // Heuristic 1: Task was recently created (within detection window)
+  const detectionWindowMs = (config?.calendarDetectionWindowMinutes || 5) * 60 * 1000;
+  const taskAge = task.created ? now - new Date(task.created) : Infinity;
+  const isRecentlyCreated = taskAge <= detectionWindowMs;
+  
+  if (!isRecentlyCreated) return false;
+  
+  // Heuristic 2: Task has a scheduled time (dueWithTime) set
+  // Calendar imports typically have a specific scheduled time
+  const hasScheduledTime = !!(task.dueWithTime && task.dueWithTime > 0);
+  
+  // Heuristic 3: Task has no time estimate or minimal time estimate
+  // Calendar events are usually imported without work estimates
+  const hasNoEstimate = !task.timeEstimate || task.timeEstimate === 0;
+  
+  // Heuristic 4: Task has repeatCfg (recurring event) - strong indicator
+  const isRecurring = !!(task.repeatCfg && Object.keys(task.repeatCfg).length > 0);
+  
+  // Strong match: recurring event
+  if (isRecurring && hasScheduledTime) {
+    return true;
+  }
+  
+  // Good match: recently created with scheduled time but no estimate
+  if (hasScheduledTime && hasNoEstimate) {
+    return true;
+  }
+  
+  return false;
 }
 
 /**

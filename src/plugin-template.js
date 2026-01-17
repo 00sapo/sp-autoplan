@@ -566,6 +566,47 @@ async function clearPlanning(silent = false) {
 // PLUGIN INITIALIZATION
 // ============================================================================
 
+/**
+ * Handle task update event to auto-tag calendar imports
+ * This runs whenever a task is created or updated
+ */
+async function handleTaskUpdate(taskId, task, isCreate) {
+  try {
+    const config = await loadConfig();
+    
+    // Only process if auto-tagging is enabled and fixed tag is configured
+    if (!config.autoTagCalendarImports || !config.doNotRescheduleTagId) {
+      return;
+    }
+    
+    // Skip if task already has the fixed tag
+    if (hasTag(task, config.doNotRescheduleTagId)) {
+      return;
+    }
+    
+    // Check if task looks like a calendar import
+    if (looksLikeCalendarImport(task, config)) {
+      console.log(`[AutoPlan] Auto-tagging task "${task.title}" as calendar import`);
+      
+      // Add the fixed tag to the task
+      const newTagIds = [...(task.tagIds || []), config.doNotRescheduleTagId];
+      await PluginAPI.updateTask(taskId, {
+        tagIds: newTagIds,
+      });
+      
+      console.log(`[AutoPlan] Successfully tagged task "${task.title}" with fixed tag`);
+    }
+  } catch (error) {
+    console.warn('[AutoPlan] Error in handleTaskUpdate:', error);
+    // Don't throw - we don't want to break task creation/update
+  }
+}
+
+// Register hook handlers
+PluginAPI.onTaskUpdate((taskId, task) => {
+  handleTaskUpdate(taskId, task, false);
+});
+
 // Register side panel button
 PluginAPI.registerSidePanelButton({
   label: 'AutoPlan',
