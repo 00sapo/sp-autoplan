@@ -1125,15 +1125,16 @@ export const AutoPlanner = {
 export const TaskMerger = {
   /**
    * Parse the notes field to extract original task ID and split info
-   * Uses a more robust parsing approach
+   * Uses a more robust parsing approach with [AutoPlan] prefix to prevent false positives
    */
   parseSplitInfo(task) {
     if (!task.notes) return null;
     
-    // Look for the AutoPlan split marker with more flexible pattern
+    // Look for the AutoPlan split marker with [AutoPlan] prefix
+    // This prevents false positives from user notes that happen to match the pattern
     // Handle potential special characters in title
-    const splitMatch = task.notes.match(/Split (\d+)\/(\d+) of "((?:[^"\\]|\\.)*)"/);
-    const idMatch = task.notes.match(/Original Task ID: ([^\n\s]+)/);
+    const splitMatch = task.notes.match(/\[AutoPlan\] Split (\d+)\/(\d+) of "((?:[^"\\]|\\.)*)"/);
+    const idMatch = task.notes.match(/\[AutoPlan\] Original Task ID: ([^\n\s]+)/);
     
     if (splitMatch && idMatch) {
       return {

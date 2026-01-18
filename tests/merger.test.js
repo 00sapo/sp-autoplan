@@ -149,7 +149,7 @@ describe('TaskMerger.parseSplitInfo', () => {
 
   it('handles titles with escaped quotes', () => {
     const task = createTask({
-      notes: 'Split 1/2 of "Task \\"important\\""\n\nOriginal Task ID: orig-1',
+      notes: '[AutoPlan] Split 1/2 of "Task \\"important\\""\n\n[AutoPlan] Original Task ID: orig-1',
     });
     const info = TaskMerger.parseSplitInfo(task);
 
@@ -175,9 +175,22 @@ describe('TaskMerger.parseSplitInfo', () => {
     expect(TaskMerger.parseSplitInfo(task)).toBeNull();
   });
 
+  it('prevents false positives - rejects notes without [AutoPlan] prefix', () => {
+    // User notes that look like split task notes but don't have [AutoPlan] prefix
+    const task1 = createTask({
+      notes: 'Split 1/2 of "my work" into smaller parts.\nOriginal Task ID: some-id-in-notes'
+    });
+    const task2 = createTask({
+      notes: 'Meeting notes: Split 3/5 of "project budget" between teams.\nOriginal Task ID: PROJECT-123'
+    });
+    
+    expect(TaskMerger.parseSplitInfo(task1)).toBeNull();
+    expect(TaskMerger.parseSplitInfo(task2)).toBeNull();
+  });
+
   it('handles complex original task IDs', () => {
     const task = createTask({
-      notes: 'Split 1/2 of "Task"\n\nOriginal Task ID: abc-123-def-456',
+      notes: '[AutoPlan] Split 1/2 of "Task"\n\n[AutoPlan] Original Task ID: abc-123-def-456',
     });
     const info = TaskMerger.parseSplitInfo(task);
     expect(info.originalTaskId).toBe('abc-123-def-456');
