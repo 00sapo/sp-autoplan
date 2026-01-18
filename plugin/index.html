@@ -114,10 +114,22 @@
       font-weight: 500;
       opacity: 0.8;
       padding: 8px 0;
+      user-select: none;
     }
 
     .how-it-works summary:hover {
       opacity: 1;
+    }
+
+    /* When closed, show greyed out text */
+    .how-it-works:not([open]) summary {
+      color: #888 !important;
+      font-weight: normal;
+    }
+
+    /* When open, restore normal styling */
+    .how-it-works[open] summary {
+      font-weight: 500;
     }
 
     .intro-content {
@@ -356,37 +368,7 @@
       border-bottom: 1px solid var(--separator-color, #e0e0e0);
     }
 
-    .btn-run {
-      width: 100%;
-      padding: 16px 24px;
-      font-size: 1.1em;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      border-radius: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-      transition: all 0.2s ease;
-    }
-
-    .btn-run:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-
-    .btn-run:active:not(:disabled) {
-      transform: translateY(0);
-    }
-
-    .btn-run:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-
-    .btn-run .btn-spinner {
+    .btn-spinner {
       display: inline-block;
       width: 16px;
       height: 16px;
@@ -437,19 +419,220 @@
   </style>
 </head>
 <body>
+  <h1>AutoPlan</h1>
+  <p class="subtitle">Automatic task scheduling based on priority and urgency</p>
+
+  <div id="status" class="status"></div>
+
+  <!-- Action Buttons Section -->
   <div class="run-section">
-    <button class="btn btn-primary btn-run" id="runButton" onclick="handleRunAutoplan()">
-      <span id="runButtonContent">⚡ Run AutoPlan Now</span>
-    </button>
+    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+      <button class="btn btn-primary" style="flex: 1;" onclick="handleDryRun()">
+        🔍 Dry Run
+      </button>
+      <button class="btn btn-primary" style="flex: 1;" id="applyButton" onclick="handleApplySchedule()">
+        <span id="applyButtonContent">⚡ Apply Schedule</span>
+      </button>
+    </div>
   </div>
 
-  <h1>AutoPlan Settings</h1>
-  <div class="intro-section">
-    <p class="subtitle">Automatic task scheduling based on priority and urgency</p>
+  <!-- Priority List Section (First Screen) -->
+  <div class="section">
+    <div class="section-title">Task Priorities</div>
+    <p class="section-description">
+      Tasks sorted by their computed priority score. Higher priority tasks are scheduled first.
+    </p>
+    
+    <button class="btn" onclick="loadTaskPriorities()">
+      🔄 Refresh Priorities
+    </button>
+
+    <div id="prioritiesList" style="margin-top: 16px;">
+      <div class="loading"><div class="spinner"></div>Loading task priorities...</div>
+    </div>
+  </div>
+
+  <!-- Tabs for Settings -->
+  <div class="tabs">
+    <div class="tab active" data-tab="tags-priorities">Setting tags and priorities</div>
+    <div class="tab" data-tab="formulas">Setting formulas</div>
+    <div class="tab" data-tab="other-settings">Other settings</div>
+    <div class="tab" data-tab="merge">Manage Split Tasks</div>
+  </div>
+
+  <!-- Setting tags and priorities Tab -->
+  <div id="tab-tags-priorities" class="tab-content active">
     <details class="how-it-works">
-      <summary>How AutoPlan Works</summary>
+      <summary style="color: #888;">Show Help</summary>
       <div class="intro-content">
-        <p><strong>AutoPlan automatically schedules your tasks</strong> by splitting them into time blocks and assigning them to your calendar based on calculated urgency.</p>
+        <p><strong>How Tags and Project Priorities Work</strong></p>
+        <p>When a task has a tag or belongs to a project listed here, that boost value is added to its total priority score. Tasks with higher priority get scheduled earlier.</p>
+        <p><strong>Examples:</strong></p>
+        <ul>
+          <li>Add +20 to "Urgent" tag to schedule urgent tasks sooner</li>
+          <li>Add -10 to "Low Priority" to push those tasks later</li>
+          <li>Add +15 to "Work" project to prioritize work tasks</li>
+        </ul>
+      </div>
+    </details>
+    
+    <div class="section">
+      <div class="section-title">Tag Priority Boosts</div>
+      <p class="section-description">
+        Give certain types of tasks higher or lower priority based on their tags.
+      </p>
+      
+      <table class="tag-table" id="tagTable">
+        <thead>
+          <tr>
+            <th>Tag Name</th>
+            <th>Priority Boost</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tagTableBody">
+          <!-- Tags will be populated here -->
+        </tbody>
+      </table>
+
+      <div class="add-tag-row">
+        <select id="newTagName">
+          <option value="">Select a tag...</option>
+        </select>
+        <input type="number" id="newTagPriority" placeholder="Boost" value="10" style="width: 80px;">
+        <button class="btn btn-small" onclick="addTagPriority()">Add Tag</button>
+      </div>
+      <p class="help-text">Select a tag from the dropdown to add a priority boost.</p>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Project Priority Boosts</div>
+      <p class="section-description">
+        Give tasks in certain projects higher or lower priority.
+      </p>
+      
+      <table class="tag-table" id="projectTable">
+        <thead>
+          <tr>
+            <th>Project Name</th>
+            <th>Priority Boost</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="projectTableBody">
+          <!-- Projects will be populated here -->
+        </tbody>
+      </table>
+
+      <div class="add-tag-row">
+        <select id="newProjectName">
+          <option value="">Select a project...</option>
+        </select>
+        <input type="number" id="newProjectPriority" placeholder="Boost" value="10" style="width: 80px;">
+        <button class="btn btn-small" onclick="addProjectPriority()">Add Project</button>
+      </div>
+      <p class="help-text">Select a project from the dropdown to add a priority boost.</p>
+    </div>
+
+    <div class="actions">
+      <button class="btn" onclick="saveSettings()">Save Settings</button>
+      <button class="btn" onclick="resetToDefaults()">Reset to Defaults</button>
+    </div>
+  </div>
+
+  <!-- Setting formulas Tab -->
+  <div id="tab-formulas" class="tab-content">
+    <details class="how-it-works">
+      <summary style="color: #888;">Show Help</summary>
+      <div class="intro-content">
+        <p><strong>Understanding Priority Formulas</strong></p>
+        <p>These formulas add bonus priority based on task characteristics. The weight controls how much influence each factor has on the final priority score.</p>
+        <p><strong>Duration Priority:</strong> Should shorter or longer tasks be prioritized?</p>
+        <p><strong>Oldness Priority:</strong> Should older tasks be prioritized to prevent them from being forgotten?</p>
+        <p><strong>Total Formula:</strong> Total Priority = Tag Boosts + Project Boosts + Duration Factor + Oldness Factor</p>
+      </div>
+    </details>
+    
+    <div class="section">
+      <div class="section-title">Duration Priority Formula</div>
+      <p class="section-description">
+        Should shorter or longer tasks be prioritized?
+      </p>
+      
+      <div class="row">
+        <div class="form-group">
+          <label for="durationFormula">Formula Type</label>
+          <select id="durationFormula">
+            <option value="none">None (duration doesn't affect priority)</option>
+            <option value="linear">Linear - longer tasks = higher priority</option>
+            <option value="inverse">Inverse - shorter tasks = higher priority</option>
+            <option value="log">Logarithmic - moderate effect, diminishing returns</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="durationWeight">Weight (0-10)</label>
+          <input type="number" id="durationWeight" min="0" max="10" step="0.1" value="1.0">
+          <p class="help-text">Higher = stronger effect. Set to 0 to disable.</p>
+        </div>
+      </div>
+
+      <div class="formula-preview" id="durationPreview">
+        Duration Priority = linear(hours) * 1.0
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Oldness Priority Formula</div>
+      <p class="section-description">
+        Should older tasks be prioritized to prevent them from being forgotten?
+      </p>
+      
+      <div class="row">
+        <div class="form-group">
+          <label for="oldnessFormula">Formula Type</label>
+          <select id="oldnessFormula">
+            <option value="none">None (age doesn't affect priority)</option>
+            <option value="linear">Linear - priority grows steadily with age</option>
+            <option value="log">Logarithmic - quick initial boost, then levels off</option>
+            <option value="exponential">Exponential - old tasks become very urgent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="oldnessWeight">Weight (0-10)</label>
+          <input type="number" id="oldnessWeight" min="0" max="10" step="0.1" value="1.0">
+          <p class="help-text">Higher = stronger effect. Set to 0 to disable.</p>
+        </div>
+      </div>
+
+      <div class="formula-preview" id="oldnessPreview">
+        Oldness Priority = linear(days) * 1.0
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Total Priority Formula</div>
+      <p class="section-description">The final priority score combines all factors:</p>
+      <div class="formula-preview">
+        Total Priority = Tag Boosts + Project Boosts + Duration Factor + Oldness Factor
+      </div>
+      <p class="help-text" style="margin-top: 8px;">
+        Tasks with higher total priority get scheduled first.
+      </p>
+    </div>
+
+    <div class="actions">
+      <button class="btn" onclick="saveSettings()">Save Settings</button>
+      <button class="btn" onclick="resetToDefaults()">Reset to Defaults</button>
+    </div>
+  </div>
+
+  <!-- Other settings Tab -->
+  <div id="tab-other-settings" class="tab-content">
+    <details class="how-it-works">
+      <summary style="color: #888;">Show Help</summary>
+      <div class="intro-content">
+        <p><strong>How AutoPlan Works</strong></p>
+        <p>AutoPlan automatically schedules your tasks by splitting them into time blocks and assigning them to your calendar based on calculated urgency.</p>
         <ol>
           <li><strong>Priority Calculation:</strong> Each task gets a priority score based on tags, projects, duration, and age</li>
           <li><strong>Task Splitting:</strong> Large tasks are split into manageable time blocks (e.g., 2-hour chunks)</li>
@@ -459,27 +642,8 @@
         <p><strong>Requirements:</strong> Tasks must have a time estimate to be scheduled. Tasks without estimates are skipped.</p>
       </div>
     </details>
-    <div class="tip-box">
-      <strong>Tip: Control Task Priority</strong>
-      <p>Use <strong>Tag Priorities</strong> and <strong>Project Priorities</strong> tabs to assign priority boosts to specific tags or projects.</p>
-      <p>Example: Add +20 to an "urgent" tag to schedule urgent tasks first, or -10 to a "low-priority" tag to push them later.</p>
-    </div>
-  </div>
-
-  <div id="status" class="status"></div>
-
-  <div class="tabs">
-    <div class="tab active" data-tab="settings">Settings</div>
-    <div class="tab" data-tab="priorities">Priorities</div>
-    <div class="tab" data-tab="tags">Tag Priorities</div>
-    <div class="tab" data-tab="projects">Project Priorities</div>
-    <div class="tab" data-tab="formulas">Priority Formulas</div>
-    <div class="tab" data-tab="schedule">Schedule</div>
-    <div class="tab" data-tab="merge">Merge Tasks</div>
-  </div>
-
-  <!-- Settings Tab -->
-  <div id="tab-settings" class="tab-content active">
+    
+    <div class="section">
     <div class="section">
       <div class="section-title">Block Settings</div>
       <p class="section-description">Control how tasks are divided into schedulable time blocks.</p>
@@ -585,220 +749,48 @@
         </div>
       </div>
     </div>
+
+    <div class="actions">
+      <button class="btn" onclick="saveSettings()">Save Settings</button>
+      <button class="btn" onclick="resetToDefaults()">Reset to Defaults</button>
+    </div>
   </div>
 
-  <!-- Priorities Tab -->
-  <div id="tab-priorities" class="tab-content">
+  <!-- Manage Split Tasks Tab -->
+  <div id="tab-merge" class="tab-content">
+    <details class="how-it-works">
+      <summary style="color: #888;">Show Help</summary>
+      <div class="intro-content">
+        <p><strong>How Merging Works</strong></p>
+        <p>When AutoPlan splits a task into multiple blocks, you can merge them back together here.</p>
+        <ul>
+          <li><strong>Incomplete splits</strong> are combined into one task</li>
+          <li><strong>Time estimates</strong> from all splits are summed together</li>
+          <li><strong>The original title</strong> is restored (Roman numerals removed)</li>
+          <li><strong>Completed splits</strong> are deleted (their work is already done)</li>
+        </ul>
+        <p>Use this when you want to reschedule a task differently, or if you finished the work faster than expected.</p>
+        <p><strong>What happens when you "Clear All Planning":</strong></p>
+        <ul>
+          <li>All split tasks (e.g., "Task &lt;I&gt;", "Task &lt;II&gt;") are merged back into single tasks</li>
+          <li>Scheduled times are removed from tasks with time estimates (except those with "Do Not Reschedule" tag)</li>
+        </ul>
+      </div>
+    </details>
+    
     <div class="section">
-      <div class="section-title">Task Priorities</div>
+      <div class="section-title">Split Task Groups</div>
       <p class="section-description">
-        View all eligible tasks sorted by their computed priority score. Higher priority tasks are scheduled first.
+        When AutoPlan splits a task into multiple blocks, you can merge them back together here.
       </p>
       
-      <button class="btn" onclick="loadTaskPriorities()">
-        Refresh Priorities
+      <button class="btn" onclick="loadSplitGroups()">
+        🔄 Refresh Split Groups
       </button>
 
-      <div id="prioritiesList" style="margin-top: 16px;">
-        <p style="opacity: 0.7;">Click "Refresh Priorities" to load task priorities.</p>
+      <div id="splitGroups" style="margin-top: 16px;">
+        <p style="opacity: 0.7;">Click "Refresh Split Groups" to load split task groups.</p>
       </div>
-    </div>
-  </div>
-
-  <!-- Tag Priorities Tab -->
-  <div id="tab-tags" class="tab-content">
-    <div class="section">
-      <div class="section-title">Tag Priority Boosts</div>
-      <p class="section-description">
-        Give certain types of tasks higher or lower priority based on their tags.
-      </p>
-      
-      <div class="tip-box" style="margin-bottom: 16px;">
-        <strong>How Tag Priorities Work</strong>
-        <p>When a task has a tag listed here, that boost value is added to its total priority score. Tasks with higher priority get scheduled earlier.</p>
-        <p><strong>Examples:</strong> Add +20 to "Urgent" tag to schedule urgent tasks sooner. Add -10 to "Low Priority" to push those tasks later.</p>
-      </div>
-      
-      <table class="tag-table" id="tagTable">
-        <thead>
-          <tr>
-            <th>Tag Name</th>
-            <th>Priority Boost</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="tagTableBody">
-          <!-- Tags will be populated here -->
-        </tbody>
-      </table>
-
-      <div class="add-tag-row">
-        <select id="newTagName">
-          <option value="">Select a tag...</option>
-        </select>
-        <input type="number" id="newTagPriority" placeholder="Boost" value="10" style="width: 80px;">
-        <button class="btn btn-small" onclick="addTagPriority()">Add Tag</button>
-      </div>
-      <p class="help-text">Select a tag from the dropdown to add a priority boost.</p>
-    </div>
-
-  </div>
-
-  <!-- Project Priorities Tab -->
-  <div id="tab-projects" class="tab-content">
-    <div class="section">
-      <div class="section-title">Project Priority Boosts</div>
-      <p class="section-description">
-        Give tasks in certain projects higher or lower priority.
-      </p>
-      
-      <div class="tip-box" style="margin-bottom: 16px;">
-        <strong>How Project Priorities Work</strong>
-        <p>When a task belongs to a project listed here, that boost value is added to its total priority score. Tasks with higher priority get scheduled earlier.</p>
-        <p><strong>Examples:</strong> Add +15 to "Work" project to prioritize work tasks. Add -5 to "Someday" to push those tasks later.</p>
-      </div>
-      
-      <table class="tag-table" id="projectTable">
-        <thead>
-          <tr>
-            <th>Project Name</th>
-            <th>Priority Boost</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="projectTableBody">
-          <!-- Projects will be populated here -->
-        </tbody>
-      </table>
-
-      <div class="add-tag-row">
-        <select id="newProjectName">
-          <option value="">Select a project...</option>
-        </select>
-        <input type="number" id="newProjectPriority" placeholder="Boost" value="10" style="width: 80px;">
-        <button class="btn btn-small" onclick="addProjectPriority()">Add Project</button>
-      </div>
-      <p class="help-text">Select a project from the dropdown to add a priority boost.</p>
-    </div>
-
-  </div>
-
-  <!-- Priority Formulas Tab -->
-  <div id="tab-formulas" class="tab-content">
-    <div class="tip-box" style="margin-bottom: 20px;">
-      <strong>Understanding Priority Formulas</strong>
-      <p>These formulas add bonus priority based on task characteristics. The weight controls how much influence each factor has on the final priority score.</p>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Duration Priority Formula</div>
-      <p class="section-description">
-        Should shorter or longer tasks be prioritized?
-      </p>
-      
-      <div class="row">
-        <div class="form-group">
-          <label for="durationFormula">Formula Type</label>
-          <select id="durationFormula">
-            <option value="none">None (duration doesn't affect priority)</option>
-            <option value="linear">Linear - longer tasks = higher priority</option>
-            <option value="inverse">Inverse - shorter tasks = higher priority</option>
-            <option value="log">Logarithmic - moderate effect, diminishing returns</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="durationWeight">Weight (0-10)</label>
-          <input type="number" id="durationWeight" min="0" max="10" step="0.1" value="1.0">
-          <p class="help-text">Higher = stronger effect. Set to 0 to disable.</p>
-        </div>
-      </div>
-
-      <div class="formula-preview" id="durationPreview">
-        Duration Priority = linear(hours) * 1.0
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Oldness Priority Formula</div>
-      <p class="section-description">
-        Should older tasks be prioritized to prevent them from being forgotten?
-      </p>
-      
-      <div class="row">
-        <div class="form-group">
-          <label for="oldnessFormula">Formula Type</label>
-          <select id="oldnessFormula">
-            <option value="none">None (age doesn't affect priority)</option>
-            <option value="linear">Linear - priority grows steadily with age</option>
-            <option value="log">Logarithmic - quick initial boost, then levels off</option>
-            <option value="exponential">Exponential - old tasks become very urgent</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="oldnessWeight">Weight (0-10)</label>
-          <input type="number" id="oldnessWeight" min="0" max="10" step="0.1" value="1.0">
-          <p class="help-text">Higher = stronger effect. Set to 0 to disable.</p>
-        </div>
-      </div>
-
-      <div class="formula-preview" id="oldnessPreview">
-        Oldness Priority = linear(days) * 1.0
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Total Priority Formula</div>
-      <p class="section-description">The final priority score combines all factors:</p>
-      <div class="formula-preview">
-        Total Priority = Tag Boosts + Project Boosts + Duration Factor + Oldness Factor
-      </div>
-      <p class="help-text" style="margin-top: 8px;">
-        Tasks with higher total priority get scheduled first.
-      </p>
-    </div>
-  </div>
-
-  <!-- Schedule Tab -->
-  <div id="tab-schedule" class="tab-content">
-    <div class="section">
-      <div class="section-title">Schedule Preview</div>
-      <p class="section-description">
-        See how your tasks will be scheduled before applying changes.
-      </p>
-      
-      <div class="tip-box" style="margin-bottom: 16px;">
-        <strong>Preview limitations:</strong>
-        <p>The preview shows the schedule based on the <em>current</em> state of your tasks. It does not simulate merging split tasks first.</p>
-        <p>If you have existing split tasks, the actual run may produce different results since it merges them before scheduling.</p>
-      </div>
-      
-      <button class="btn" onclick="previewSchedule()">
-        Generate Preview
-      </button>
-
-      <div id="schedulePreview" class="schedule-preview" style="margin-top: 16px;">
-        <!-- Schedule preview will be shown here -->
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Apply Schedule</div>
-      <p class="section-description">
-        Run the scheduling algorithm and apply changes to your tasks.
-      </p>
-      
-      <div class="tip-box" style="margin-bottom: 16px;">
-        <strong>What happens when you run AutoPlan:</strong>
-        <p>1. All existing split tasks are merged back together</p>
-        <p>2. Scheduled times are cleared from eligible tasks</p>
-        <p>3. Tasks are split into blocks (based on Block Size setting)</p>
-        <p>4. Each block is scheduled to your calendar based on priority</p>
-        <p>This means you can safely re-run AutoPlan at any time to reschedule.</p>
-      </div>
-      
-      <button class="btn btn-primary" onclick="runAutoplan()">
-        Run AutoPlan Now
-      </button>
     </div>
 
     <div class="section">
@@ -807,54 +799,10 @@
         Merge all split tasks back together and remove scheduled times, without rescheduling.
       </p>
       
-      <div class="tip-box" style="margin-bottom: 16px;">
-        <strong>What happens:</strong>
-        <p>1. All split tasks (e.g., "Task &lt;I&gt;", "Task &lt;II&gt;") are merged back into single tasks</p>
-        <p>2. Scheduled times are removed from tasks with time estimates (except those with "Do Not Reschedule" tag)</p>
-        <p>Use this if you want to clear the schedule without immediately rescheduling.</p>
-      </div>
-      
       <button class="btn" onclick="handleClearPlanning()">
         Clear All Planning
       </button>
     </div>
-  </div>
-
-  <!-- Merge Tasks Tab -->
-  <div id="tab-merge" class="tab-content">
-    <div class="section">
-      <div class="section-title">Split Task Groups</div>
-      <p class="section-description">
-        When AutoPlan splits a task into multiple blocks, you can merge them back together here.
-      </p>
-      
-      <button class="btn" onclick="loadSplitGroups()">
-        Refresh Split Groups
-      </button>
-
-      <div id="splitGroups" style="margin-top: 16px;">
-        <!-- Split groups will be shown here -->
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">How Merging Works</div>
-      <p class="section-description">When you merge split tasks:</p>
-      <ul style="opacity: 0.8; padding-left: 20px; line-height: 1.6;">
-        <li><strong>Incomplete splits</strong> are combined into one task</li>
-        <li><strong>Time estimates</strong> from all splits are summed together</li>
-        <li><strong>The original title</strong> is restored (Roman numerals removed)</li>
-        <li><strong>Completed splits</strong> are deleted (their work is already done)</li>
-      </ul>
-      <p class="help-text" style="margin-top: 12px;">
-        Use this when you want to reschedule a task differently, or if you finished the work faster than expected.
-      </p>
-    </div>
-  </div>
-
-  <div class="actions">
-    <button class="btn" onclick="saveSettings()">Save Settings</button>
-    <button class="btn" onclick="resetToDefaults()">Reset to Defaults</button>
   </div>
 
   <script>
@@ -863,10 +811,31 @@
     let availableTags = [];
     let availableProjects = [];
 
-    // Handle Run AutoPlan button click
-    async function handleRunAutoplan() {
-      const button = document.getElementById('runButton');
-      const buttonContent = document.getElementById('runButtonContent');
+    // Handle Dry Run button click
+    async function handleDryRun() {
+      try {
+        // Save current settings first
+        await saveSettings();
+
+        // Try to communicate with plugin.js
+        if (window.parent && window.parent.AutoPlanAPI) {
+          const result = await window.parent.AutoPlanAPI.runAutoplan(true);
+          const schedule = result.schedule || [];
+          showStatus(`Dry Run complete: ${schedule.length} blocks would be scheduled`, 'info');
+        } else {
+          // AutoPlanAPI not available
+          showStatus('AutoPlanAPI not available. Use the header button or Ctrl+Shift+A to run.', 'info');
+        }
+      } catch (e) {
+        console.error('Dry run failed:', e);
+        showStatus('Dry run failed: ' + e.message, 'error');
+      }
+    }
+
+    // Handle Apply Schedule button click
+    async function handleApplySchedule() {
+      const button = document.getElementById('applyButton');
+      const buttonContent = document.getElementById('applyButtonContent');
       const originalContent = buttonContent.innerHTML;
 
       // Show loading state
@@ -897,6 +866,9 @@
           } else {
             showStatus(`AutoPlan complete: ${schedule.length} blocks scheduled`, 'success');
           }
+          
+          // Refresh the priority list
+          await loadTaskPriorities();
         } else {
           // AutoPlanAPI not available
           showStatus('AutoPlanAPI not available. Use the header button or Ctrl+Shift+A to run.', 'info');
@@ -909,6 +881,11 @@
         button.disabled = false;
         buttonContent.innerHTML = originalContent;
       }
+    }
+
+    // Handle Run AutoPlan button click (legacy - kept for compatibility)
+    async function handleRunAutoplan() {
+      return handleApplySchedule();
     }
 
     // Tab switching
@@ -944,10 +921,20 @@
         await populateTagDropdown();
         await populateProjectDropdown();
         applySettingsToUI();
+        
+        // Load priorities on startup
+        await loadTaskPriorities();
       } catch (e) {
         console.error('Failed to load settings:', e);
         currentConfig = getDefaultConfig();
         applySettingsToUI();
+        
+        // Still try to load priorities even if settings fail
+        try {
+          await loadTaskPriorities();
+        } catch (priorityError) {
+          console.error('Failed to load priorities:', priorityError);
+        }
       }
     }
 
